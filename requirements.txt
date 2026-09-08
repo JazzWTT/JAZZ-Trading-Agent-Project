@@ -1,0 +1,6 @@
+# JAZZ Trading United Nation Dependencies
+py-clob-client>=0.18.0
+websockets>=12.0
+aiohttp>=3.9.0
+pydantic>=2.0.0
+pytest>=7.0.0

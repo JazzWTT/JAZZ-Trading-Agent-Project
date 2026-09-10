@@ -378,36 +378,45 @@ with st.sidebar:
 
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
 
-    # Venue Status Indicators
-    st.markdown("<div style='font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #a1a1aa; letter-spacing: 0.05em; margin-bottom: 0.6rem;'>Venue Telemetry</div>", unsafe_allow_html=True)
-
-    htx_status = bot_ctrl.get("htx_feed_status", "ONLINE")
-    pm_latency = bot_ctrl.get("polymarket_latency_ms", 38.5)
-    last_hb = bot_ctrl.get("last_heartbeat", 0.0)
-    hb_diff = time.time() - last_hb if last_hb > 0 else 999.0
-    db_status = "SYNCED" if hb_diff < 5.0 else "IDLE"
-
-    st.markdown(f"""
-    <div style="background: #0f0f13; border: 1px solid #1e1e24; border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.78rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="color: #a1a1aa;">HTX Spot Feed:</span>
-            <span class="badge badge-green">{htx_status}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="color: #a1a1aa;">Polymarket CLOB:</span>
-            <span class="badge badge-blue">{pm_latency:.1f} ms</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: #a1a1aa;">Database State:</span>
-            <span class="badge {'badge-green' if db_status=='SYNCED' else 'badge-amber'}">{db_status}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
     # Auto Refresh Setting
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
     auto_refresh = st.checkbox("Live Auto-Refresh", value=True)
-    refresh_sec = st.selectbox("Interval", options=[2, 3, 5], index=0)
+    refresh_sec = st.selectbox("Interval (seconds)", options=[2, 3, 5], index=0)
+    refresh_interval = f"{refresh_sec}s" if auto_refresh else None
+    if st.button("🔄 Refresh View", use_container_width=True):
+        st.rerun()
+
+    # Venue Status Indicators
+    st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #a1a1aa; letter-spacing: 0.05em; margin-bottom: 0.6rem;'>Venue Telemetry</div>", unsafe_allow_html=True)
+
+    @st.fragment(run_every=refresh_interval)
+    def render_sidebar_telemetry():
+        live_ctrl = get_active_bot_state()
+        htx_status = live_ctrl.get("htx_feed_status", "ONLINE")
+        pm_latency = live_ctrl.get("polymarket_latency_ms", 38.5)
+        last_hb = live_ctrl.get("last_heartbeat", 0.0)
+        hb_diff = time.time() - last_hb if last_hb > 0 else 999.0
+        db_status = "SYNCED" if hb_diff < 5.0 else "IDLE"
+
+        st.markdown(f"""
+        <div style="background: #0f0f13; border: 1px solid #1e1e24; border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.78rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="color: #a1a1aa;">HTX Spot Feed:</span>
+                <span class="badge badge-green">{htx_status}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="color: #a1a1aa;">Polymarket CLOB:</span>
+                <span class="badge badge-blue">{pm_latency:.1f} ms</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #a1a1aa;">Database State:</span>
+                <span class="badge {'badge-green' if db_status=='SYNCED' else 'badge-amber'}">{db_status}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    render_sidebar_telemetry()
 
 
 # =============================================================================
@@ -424,7 +433,8 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # -----------------------------------------------------------------------------
 # TAB 1: LIVE OVERVIEW & METRICS
 # -----------------------------------------------------------------------------
-with tab1:
+@st.fragment(run_every=refresh_interval)
+def render_tab1():
     # Refresh metrics
     metrics = db.calculate_metrics(current_cash=DEFAULT_CONFIG.risk.total_capital_usdc)
     open_positions = db.get_open_positions()
@@ -579,11 +589,13 @@ with tab1:
 # -----------------------------------------------------------------------------
 # TAB 2: ORDER BOOK & SIGNAL FEED
 # -----------------------------------------------------------------------------
-with tab2:
+@st.fragment(run_every=refresh_interval)
+def render_tab2():
     st.markdown("<div style='font-size: 0.95rem; font-weight: 600; color: #fafafa; margin-bottom: 0.8rem;'>HTX Spot Crypto Feeds & Momentum Velocity</div>", unsafe_allow_html=True)
 
-    btc_spot = bot_ctrl.get("htx_spot_price", 64250.0)
-    btc_vel = bot_ctrl.get("htx_velocity_60s", 0.0)
+    live_ctrl = get_active_bot_state()
+    btc_spot = live_ctrl.get("htx_spot_price", 64250.0)
+    btc_vel = live_ctrl.get("htx_velocity_60s", 0.0)
 
     h_col1, h_col2, h_col3 = st.columns(3)
     with h_col1:
@@ -682,7 +694,8 @@ with tab2:
 # -----------------------------------------------------------------------------
 # TAB 3: ACTIVE POSITIONS & LEDGER
 # -----------------------------------------------------------------------------
-with tab3:
+@st.fragment(run_every=refresh_interval)
+def render_tab3():
     st.markdown("<div style='font-size: 0.95rem; font-weight: 600; color: #fafafa; margin-bottom: 0.6rem;'>Open Positions & Resting Orders</div>", unsafe_allow_html=True)
 
     open_pos = db.get_open_positions()
@@ -796,7 +809,8 @@ with tab3:
 # -----------------------------------------------------------------------------
 # TAB 4: SYSTEM LOGS & TELEMETRY
 # -----------------------------------------------------------------------------
-with tab4:
+@st.fragment(run_every=refresh_interval)
+def render_tab4():
     col_filter, col_act1, col_act2 = st.columns([3, 2, 2])
     with col_filter:
         level_filter = st.selectbox("Filter Log Level", options=["ALL", "INFO", "WARNING", "ERROR", "CRITICAL"], index=0)
@@ -864,8 +878,16 @@ with tab4:
 
 
 # =============================================================================
-# 5. LIVE AUTO-REFRESH EXECUTION
+# 5. RENDER DASHBOARD TABS
 # =============================================================================
-if auto_refresh:
-    time.sleep(refresh_sec)
-    st.rerun()
+with tab1:
+    render_tab1()
+
+with tab2:
+    render_tab2()
+
+with tab3:
+    render_tab3()
+
+with tab4:
+    render_tab4()

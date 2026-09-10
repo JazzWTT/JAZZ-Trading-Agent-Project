@@ -40,6 +40,15 @@ async def run_simulation(rounds: int = 5):
     db = LedgerDB(DEFAULT_CONFIG.db_path)
     exchange = MockMarketExchange()
 
+    # Attach SQLite logging handler to stream logs into portfolio_ledger.db
+    from database.ledger_db import SQLiteLogHandler
+    sqlite_handler = SQLiteLogHandler(db)
+    sqlite_handler.setLevel(logging.INFO)
+    logging.getLogger().addHandler(sqlite_handler)
+
+    # Record strategy signals in database
+    bus.subscribe("trade_signals", lambda order: db.record_signal(order, status="APPROVED"))
+
     # Instantiate the 5 Agents
     eyes = Agent1Eyes(bus=bus, config=DEFAULT_CONFIG)
     brain = Agent2Brain(bus=bus, config=DEFAULT_CONFIG)

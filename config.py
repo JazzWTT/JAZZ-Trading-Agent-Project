@@ -14,6 +14,8 @@ class MarketConfig:
     polymarket_clob_rest: str = "https://clob.polymarket.com"
     binance_ws: str = "wss://stream.binance.com:9443/ws"
     coinbase_ws: str = "wss://ws-feed.exchange.coinbase.com"
+    htx_ws: str = "wss://api.huobi.pro/ws"
+    htx_rest: str = "https://api.huobi.pro"
     
     # Expiry Filters
     min_secs_remaining_drop: int = 30     # Hard drop if expiry <= 30s
@@ -47,7 +49,7 @@ class SystemConfig:
     market: MarketConfig = field(default_factory=MarketConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    db_path: str = "jazz_ledger.db"
+    db_path: str = "portfolio_ledger.db"
     log_level: str = "INFO"
 
 

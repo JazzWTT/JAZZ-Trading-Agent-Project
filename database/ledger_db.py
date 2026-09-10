@@ -1,4 +1,4 @@
-﻿"""
+"""
 JAZZ Trading United Nation - Ledger Database
 Immutable SQLite audit trail and analytics calculator for Agent 5 (The Ledger).
 """
@@ -6,12 +6,13 @@ Immutable SQLite audit trail and analytics calculator for Agent 5 (The Ledger).
 import sqlite3
 import time
 import math
+import logging
 from typing import Optional, Tuple, List, Dict, Any
-from core.models import ExecutionRecord, TradeRecord, PortfolioMetrics
+from core.models import ExecutionRecord, TradeRecord, PortfolioMetrics, DecisionOrder
 
 
 class LedgerDB:
-    def __init__(self, db_path: str = "jazz_ledger.db"):
+    def __init__(self, db_path: str = "portfolio_ledger.db"):
         self.db_path = db_path
         self._init_db()
 
@@ -82,6 +83,73 @@ class LedgerDB:
                 profit_factor REAL,
                 avg_latency_ms REAL,
                 max_drawdown_pct REAL
+            )
+            """)
+
+            # Bot control & IPC table
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_control (
+                id INTEGER PRIMARY KEY,
+                status TEXT DEFAULT 'STOPPED',
+                kill_switch INTEGER DEFAULT 0,
+                max_position_pct REAL DEFAULT 2.0,
+                daily_loss_limit_pct REAL DEFAULT 5.0,
+                min_profit_threshold_pct REAL DEFAULT 3.5,
+                max_spread_bps REAL DEFAULT 400.0,
+                last_heartbeat REAL,
+                htx_feed_status TEXT DEFAULT 'ONLINE',
+                polymarket_latency_ms REAL DEFAULT 38.5,
+                htx_spot_price REAL DEFAULT 64250.0,
+                htx_velocity_60s REAL DEFAULT 0.0,
+                updated_at REAL
+            )
+            """)
+            cur.execute("""
+            INSERT OR IGNORE INTO bot_control (
+                id, status, kill_switch, max_position_pct, daily_loss_limit_pct,
+                min_profit_threshold_pct, max_spread_bps, last_heartbeat,
+                htx_feed_status, polymarket_latency_ms, htx_spot_price, htx_velocity_60s, updated_at
+            ) VALUES (1, 'STOPPED', 0, 2.0, 5.0, 3.5, 400.0, ?, 'ONLINE', 38.5, 64250.0, 0.0, ?)
+            """, (time.time(), time.time()))
+
+            # Live signals table
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_id TEXT UNIQUE,
+                timestamp REAL,
+                asset_id TEXT,
+                token_id TEXT,
+                action TEXT,
+                target_limit_price REAL,
+                calculated_edge_bps REAL,
+                max_size_shares REAL,
+                theoretical_probability REAL,
+                delta REAL,
+                status TEXT DEFAULT 'APPROVED'
+            )
+            """)
+
+            # System logs table
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                level TEXT,
+                source TEXT,
+                message TEXT
+            )
+            """)
+
+            # Portfolio equity history snapshots for live line chart
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                equity_usdc REAL,
+                cash_usdc REAL,
+                open_exposure_usdc REAL,
+                pnl_24h REAL
             )
             """)
             conn.commit()
@@ -246,3 +314,148 @@ class LedgerDB:
             conn.commit()
 
             return metrics
+
+    # =========================================================================
+    # BOT CONTROL & IPC
+    # =========================================================================
+    def get_bot_control(self) -> dict:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM bot_control WHERE id = 1")
+            row = cur.fetchone()
+            if row:
+                return dict(row)
+            return {
+                "id": 1,
+                "status": "STOPPED",
+                "kill_switch": 0,
+                "max_position_pct": 2.0,
+                "daily_loss_limit_pct": 5.0,
+                "min_profit_threshold_pct": 3.5,
+                "max_spread_bps": 400.0,
+                "last_heartbeat": 0.0,
+                "htx_feed_status": "ONLINE",
+                "polymarket_latency_ms": 38.5,
+                "htx_spot_price": 64250.0,
+                "htx_velocity_60s": 0.0,
+                "updated_at": 0.0
+            }
+
+    def update_bot_control(self, **kwargs):
+        if not kwargs:
+            return
+        fields = []
+        values = []
+        for k, v in kwargs.items():
+            fields.append(f"{k} = ?")
+            values.append(v)
+        fields.append("updated_at = ?")
+        values.append(time.time())
+        values.append(1)  # WHERE id = 1
+
+        sql = f"UPDATE bot_control SET {', '.join(fields)} WHERE id = ?"
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, values)
+            conn.commit()
+
+    # =========================================================================
+    # SIGNALS
+    # =========================================================================
+    def record_signal(self, order: DecisionOrder, status: str = "APPROVED"):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            INSERT OR REPLACE INTO signals (
+                signal_id, timestamp, asset_id, token_id, action,
+                target_limit_price, calculated_edge_bps, max_size_shares,
+                theoretical_probability, delta, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                order.signal_id, order.timestamp, order.asset_id, order.token_id,
+                order.action, order.target_limit_price, order.calculated_edge_bps,
+                order.max_size_shares, order.theoretical_probability, order.delta,
+                status
+            ))
+            conn.commit()
+
+    def get_recent_signals(self, limit: int = 50) -> List[dict]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+
+    # =========================================================================
+    # SYSTEM LOGS
+    # =========================================================================
+    def record_log(self, level: str, source: str, message: str):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            INSERT INTO system_logs (timestamp, level, source, message)
+            VALUES (?, ?, ?, ?)
+            """, (time.time(), level.upper(), source, message))
+            conn.commit()
+
+    def get_recent_logs(self, limit: int = 150, level_filter: str = "ALL") -> List[dict]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            if level_filter.upper() == "ALL":
+                cur.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT ?", (limit,))
+            else:
+                cur.execute(
+                    "SELECT * FROM system_logs WHERE level = ? ORDER BY timestamp DESC LIMIT ?",
+                    (level_filter.upper(), limit)
+                )
+            return [dict(r) for r in cur.fetchall()]
+
+    # =========================================================================
+    # PORTFOLIO EQUITY HISTORY (LINE CHART)
+    # =========================================================================
+    def record_portfolio_snapshot(self, equity_usdc: float, cash_usdc: float, open_exposure_usdc: float, pnl_24h: float):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            INSERT INTO portfolio_history (timestamp, equity_usdc, cash_usdc, open_exposure_usdc, pnl_24h)
+            VALUES (?, ?, ?, ?, ?)
+            """, (time.time(), equity_usdc, cash_usdc, open_exposure_usdc, pnl_24h))
+            conn.commit()
+
+    def get_portfolio_history(self, limit: int = 200) -> List[dict]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM portfolio_history ORDER BY timestamp ASC LIMIT ?", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+
+    # =========================================================================
+    # POSITIONS & TRADES FOR TAB 3
+    # =========================================================================
+    def get_open_positions(self) -> List[dict]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM trades WHERE status = 'OPEN' ORDER BY entry_time DESC")
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_settled_trades(self, limit: int = 100) -> List[dict]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM trades WHERE status = 'SETTLED' ORDER BY exit_time DESC LIMIT ?", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+class SQLiteLogHandler(logging.Handler):
+    """Logging handler that streams logs into the SQLite system_logs table."""
+    def __init__(self, db: LedgerDB):
+        super().__init__()
+        self.db = db
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            msg = self.format(record)
+            self.db.record_log(
+                level=record.levelname,
+                source=record.name,
+                message=msg
+            )
+        except Exception:
+            pass

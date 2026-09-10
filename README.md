@@ -79,6 +79,8 @@ jazz_trading_un/
 ├── requirements.txt
 ├── config.py                 # System thresholds, spread limits, and risk caps
 ├── main.py                   # Multi-agent simulation runner
+├── bot_service.py            # Background daemon bot service with SQLite IPC
+├── app.py                    # Real-time Streamlit web dashboard
 ├── core/
 │   ├── models.py             # EventPacket, DecisionOrder, ExecutionRecord, TradeRecord
 │   └── message_bus.py        # Asynchronous event pub/sub bus
@@ -110,22 +112,28 @@ jazz_trading_un/
 
 All commands can be copy-pasted directly:
 
-### 1. Run Automated Test Suite (100% Passing)
+### 1. Launch Real-Time Streamlit Trading Terminal Dashboard
+```bash
+streamlit run app.py
+```
+*(Or run via virtual environment: `.venv\Scripts\streamlit run app.py`)*
+
+### 2. Run Automated Test Suite (100% Passing)
 ```bash
 py -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-### 2. Run Live Multi-Agent Simulation
+### 3. Run Live Multi-Agent Simulation
 ```bash
 py main.py --rounds 5
 ```
 
-### 3. Run Empirical Lag Probe (Test Mode)
+### 4. Run Empirical Lag Probe (Test Mode)
 ```bash
 py research/lag_probe.py --test
 ```
 
-### 4. Run Statistical Analysis on Probe Data
+### 5. Run Statistical Analysis on Probe Data
 ```bash
 py research/analyze.py
 ```

@@ -325,6 +325,11 @@ with st.sidebar:
             stop_emergency_kill_switch()
             st.rerun()
 
+    if st.button("🧹 Reset Ledger ($10k USDC)", use_container_width=True):
+        db.reset_database(initial_capital=DEFAULT_CONFIG.risk.total_capital_usdc)
+        st.toast("Portfolio ledger reset back to clean $10,000 USDC!", icon="🧹")
+        st.rerun()
+
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
 
     # Risk Management Controls
@@ -436,12 +441,15 @@ tab1, tab2, tab3, tab4 = st.tabs([
 @st.fragment(run_every=refresh_interval)
 def render_tab1():
     # Refresh metrics
-    metrics = db.calculate_metrics(current_cash=DEFAULT_CONFIG.risk.total_capital_usdc)
+    acct = db.get_portfolio_accounting(initial_capital=DEFAULT_CONFIG.risk.total_capital_usdc)
+    metrics = db.calculate_metrics(current_cash=acct["cash_balance"], initial_capital=DEFAULT_CONFIG.risk.total_capital_usdc)
     open_positions = db.get_open_positions()
-    open_exp = sum(p["entry_price"] * p["shares"] for p in open_positions)
-    total_equity = metrics.cash_balance_usdc + open_exp
-    pnl_total = total_equity - DEFAULT_CONFIG.risk.total_capital_usdc
-    pnl_pct = (pnl_total / DEFAULT_CONFIG.risk.total_capital_usdc) * 100.0
+    total_equity = acct["total_equity"]
+    pnl_total = acct["total_pnl"]
+    pnl_pct = acct["pnl_pct"]
+    realized_pnl = acct["realized_pnl_24h"]
+    realized_pct = acct["realized_pnl_pct"]
+    open_exp = acct["open_cost"]
 
     # Row 1: KPI Cards
     col1, col2, col3, col4 = st.columns(4)
@@ -462,18 +470,18 @@ def render_tab1():
         <div class="metric-card">
             <div class="metric-label">Active Open Positions</div>
             <div class="metric-value">{len(open_positions)}</div>
-            <div class="metric-delta delta-warn" style="color: #38bdf8; background: rgba(56,189,248,0.12);">${open_exp:,.2f} Notional</div>
+            <div class="metric-delta delta-warn" style="color: #38bdf8; background: rgba(56,189,248,0.12);">${open_exp:,.2f} Notional Deployed</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col3:
-        pnl_badge = "delta-up" if pnl_total >= 0 else "delta-down"
-        pnl_arrow = "▲" if pnl_total >= 0 else "▼"
+        pnl_badge = "delta-up" if realized_pnl >= 0 else "delta-down"
+        pnl_arrow = "▲" if realized_pnl >= 0 else "▼"
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">24H Realized P&L</div>
-            <div class="metric-value">${pnl_total:+,.2f}</div>
-            <div class="metric-delta {pnl_badge}">{pnl_arrow} {pnl_pct:+.2f}% 24h Return</div>
+            <div class="metric-value">${realized_pnl:+,.2f}</div>
+            <div class="metric-delta {pnl_badge}">{pnl_arrow} {realized_pct:+.2f}% 24h Return</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -483,7 +491,7 @@ def render_tab1():
         <div class="metric-card">
             <div class="metric-label">Win Rate / Profit Factor</div>
             <div class="metric-value">{metrics.win_rate:.1f}%</div>
-            <div class="metric-delta {wr_type}">PF: {metrics.profit_factor:.2f} ({metrics.total_trades} Trades)</div>
+            <div class="metric-delta {wr_type}">PF: {metrics.profit_factor:.2f} ({metrics.total_trades} Settled)</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -811,7 +819,7 @@ def render_tab3():
 # -----------------------------------------------------------------------------
 @st.fragment(run_every=refresh_interval)
 def render_tab4():
-    col_filter, col_act1, col_act2 = st.columns([3, 2, 2])
+    col_filter, col_act1, col_act2, col_act3 = st.columns([3, 2, 2, 2])
     with col_filter:
         level_filter = st.selectbox("Filter Log Level", options=["ALL", "INFO", "WARNING", "ERROR", "CRITICAL"], index=0)
 
@@ -831,6 +839,13 @@ def render_tab4():
                 conn.execute("DELETE FROM system_logs")
                 conn.commit()
             st.toast("Logs cleared.", icon="🧹")
+            st.rerun()
+
+    with col_act3:
+        st.write("")
+        if st.button("🧹 Reset Ledger ($10k)", use_container_width=True):
+            db.reset_database(initial_capital=DEFAULT_CONFIG.risk.total_capital_usdc)
+            st.toast("Ledger reset to initial $10,000 USDC!", icon="🧹")
             st.rerun()
 
     recent_logs = db.get_recent_logs(limit=100, level_filter=level_filter)

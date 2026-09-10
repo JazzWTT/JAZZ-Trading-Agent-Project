@@ -235,10 +235,75 @@ class LedgerDB:
             
         return is_reconciled, discrepancy
 
-    def calculate_metrics(self, current_cash: float, initial_capital: float = 10000.0) -> PortfolioMetrics:
+    def get_portfolio_accounting(self, initial_capital: float = 10000.0) -> dict:
+        """
+        Computes mathematically sound portfolio accounting balances:
+        - realized_pnl: sum of net_pnl from settled trades
+        - realized_pnl_24h: sum of net_pnl from settled trades within last 24h
+        - open_cost: total cash committed into currently open positions
+        - cash_balance: initial_capital + realized_pnl - open_cost
+        - total_equity: cash_balance + open_cost = initial_capital + realized_pnl
+        - total_pnl: total_equity - initial_capital = realized_pnl
+        - open_count: count of open positions
+        """
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COALESCE(SUM(net_pnl), 0.0) FROM trades WHERE status = 'SETTLED'")
+            realized_pnl = cur.fetchone()[0] or 0.0
+
+            cur.execute("SELECT COALESCE(SUM(entry_price * shares), 0.0), COUNT(*) FROM trades WHERE status = 'OPEN'")
+            row = cur.fetchone()
+            open_cost = row[0] or 0.0
+            open_count = row[1] or 0
+
+            # 24H Realized PnL
+            cutoff_24h = time.time() - 86400.0
+            cur.execute("SELECT COALESCE(SUM(net_pnl), 0.0) FROM trades WHERE status = 'SETTLED' AND exit_time >= ?", (cutoff_24h,))
+            realized_pnl_24h = cur.fetchone()[0] or 0.0
+
+        cash_balance = initial_capital + realized_pnl - open_cost
+        total_equity = cash_balance + open_cost
+        pnl_total = total_equity - initial_capital
+
+        return {
+            "initial_capital": initial_capital,
+            "realized_pnl": round(realized_pnl, 4),
+            "realized_pnl_24h": round(realized_pnl_24h, 4),
+            "open_cost": round(open_cost, 4),
+            "cash_balance": round(cash_balance, 4),
+            "total_equity": round(total_equity, 4),
+            "total_pnl": round(pnl_total, 4),
+            "pnl_pct": round((pnl_total / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
+            "realized_pnl_pct": round((realized_pnl_24h / initial_capital) * 100.0, 2) if initial_capital > 0 else 0.0,
+            "open_count": open_count
+        }
+
+    def reset_database(self, initial_capital: float = 10000.0):
+        """Resets all trades, executions, and telemetry back to a clean initial slate."""
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM trades")
+            cur.execute("DELETE FROM executions")
+            cur.execute("DELETE FROM balance_audits")
+            cur.execute("DELETE FROM metrics_snapshots")
+            cur.execute("DELETE FROM portfolio_history")
+            cur.execute("DELETE FROM signals")
+            cur.execute("DELETE FROM system_logs")
+            now = time.time()
+            cur.execute("""
+            INSERT INTO portfolio_history (timestamp, equity_usdc, cash_usdc, open_exposure_usdc, pnl_24h)
+            VALUES (?, ?, ?, 0.0, 0.0)
+            """, (now, initial_capital, initial_capital))
+            conn.commit()
+
+    def calculate_metrics(self, current_cash: Optional[float] = None, initial_capital: float = 10000.0) -> PortfolioMetrics:
         """
         Calculates Win Rate, Profit Factor, Average Execution Latency, and Drawdown.
         """
+        if current_cash is None:
+            acct = self.get_portfolio_accounting(initial_capital=initial_capital)
+            current_cash = acct["cash_balance"]
+
         with self._get_conn() as conn:
             cur = conn.cursor()
             

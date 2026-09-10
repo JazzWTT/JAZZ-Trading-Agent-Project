@@ -103,6 +103,26 @@ class Agent4Shield(BaseAgent):
                 f"Resizing shares from {order.max_size_shares:.2f} to {capped_shares:.2f}."
             )
             order.max_size_shares = capped_shares
+            proposed_notional = max_notional_cap
+
+        # Guard 1b: Aggregate Open Exposure & Cash Availability Guard
+        acct = self.db.get_portfolio_accounting(initial_capital=self.total_capital)
+        current_cash = acct["cash_balance"]
+        if current_cash < proposed_notional:
+            self.logger.warning(
+                f"[CASH GUARD BLOCKED] Insufficient available cash (${current_cash:.2f}) "
+                f"for proposed order (${proposed_notional:.2f}). Order rejected."
+            )
+            return
+
+        max_concurrent_positions = 5
+        max_aggregate_exposure = self.total_capital * 0.20  # 20% aggregate cap ($2,000 max)
+        if acct["open_count"] >= max_concurrent_positions or (acct["open_cost"] + proposed_notional) > max_aggregate_exposure:
+            self.logger.warning(
+                f"[EXPOSURE GUARD BLOCKED] Cannot open new position. Current open: {acct['open_count']} positions "
+                f"(${acct['open_cost']:.2f} notional). Ceiling: {max_concurrent_positions} positions or ${max_aggregate_exposure:.2f} total."
+            )
+            return
 
         # Guard 2: Spread Guard (FAIL CLOSED on missing telemetry, block if spread > ceiling)
         market_spread_bps = self.latest_spreads_bps.get(order.asset_id)

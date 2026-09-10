@@ -404,7 +404,7 @@ with st.sidebar:
         hb_diff = time.time() - last_hb if last_hb > 0 else 999.0
         db_status = "SYNCED" if hb_diff < 5.0 else "IDLE"
 
-        st.markdown(f"""
+        st.html(f"""
         <div style="background: #0f0f13; border: 1px solid #1e1e24; border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.78rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <span style="color: #a1a1aa;">HTX Spot Feed:</span>
@@ -419,7 +419,7 @@ with st.sidebar:
                 <span class="badge {'badge-green' if db_status=='SYNCED' else 'badge-amber'}">{db_status}</span>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     render_sidebar_telemetry()
 
@@ -457,43 +457,43 @@ def render_tab1():
     with col1:
         delta_type = "up" if pnl_total >= 0 else "down"
         arrow = "↑" if pnl_total >= 0 else "↓"
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Total Portfolio Value</div>
             <div class="metric-value">${total_equity:,.2f}</div>
             <div class="metric-delta delta-{delta_type}">{arrow} {pnl_total:+,.2f} ({pnl_pct:+.2f}%)</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col2:
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Active Open Positions</div>
             <div class="metric-value">{len(open_positions)}</div>
             <div class="metric-delta delta-warn" style="color: #38bdf8; background: rgba(56,189,248,0.12);">${open_exp:,.2f} Notional Deployed</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col3:
         pnl_badge = "delta-up" if realized_pnl >= 0 else "delta-down"
         pnl_arrow = "▲" if realized_pnl >= 0 else "▼"
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">24H Realized P&L</div>
             <div class="metric-value">${realized_pnl:+,.2f}</div>
             <div class="metric-delta {pnl_badge}">{pnl_arrow} {realized_pct:+.2f}% 24h Return</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col4:
         wr_type = "delta-up" if metrics.win_rate >= 50 else "delta-warn"
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Win Rate / Profit Factor</div>
             <div class="metric-value">{metrics.win_rate:.1f}%</div>
             <div class="metric-delta {wr_type}">PF: {metrics.profit_factor:.2f} ({metrics.total_trades} Settled)</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
 
@@ -608,37 +608,37 @@ def render_tab2():
     h_col1, h_col2, h_col3 = st.columns(3)
     with h_col1:
         vel_type = "up" if btc_vel > 0.05 else ("down" if btc_vel < -0.05 else "warn")
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">HTX BTC/USDT Spot</div>
             <div class="metric-value">${btc_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type}">60s Velocity: {btc_vel:+.3f}%/min</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with h_col2:
         eth_spot = 3480.0 * (1.0 + (btc_vel * 0.01 * 0.8))
         eth_vel = btc_vel * 0.85
         vel_type_eth = "up" if eth_vel > 0.05 else ("down" if eth_vel < -0.05 else "warn")
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">HTX ETH/USDT Spot</div>
             <div class="metric-value">${eth_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type_eth}">60s Velocity: {eth_vel:+.3f}%/min</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with h_col3:
         sol_spot = 145.0 * (1.0 + (btc_vel * 0.01 * 1.2))
         sol_vel = btc_vel * 1.15
         vel_type_sol = "up" if sol_vel > 0.05 else ("down" if sol_vel < -0.05 else "warn")
-        st.markdown(f"""
+        st.html(f"""
         <div class="metric-card">
             <div class="metric-label">HTX SOL/USDT Spot</div>
             <div class="metric-value">${sol_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type_sol}">60s Velocity: {sol_vel:+.3f}%/min</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size: 0.95rem; font-weight: 600; color: #fafafa; margin-bottom: 0.8rem;'>Strategy Engine Signal Discrepancies (Black-Scholes vs. Polymarket Ask)</div>", unsafe_allow_html=True)
@@ -646,11 +646,11 @@ def render_tab2():
     recent_signals = db.get_recent_signals(limit=25)
 
     if not recent_signals:
-        st.markdown("""
+        st.html("""
         <div style="background: #131316; border: 1px solid #1e1e24; border-radius: 8px; padding: 2rem; text-align: center; color: #71717a;">
             No live strategy signals generated yet. Click <b>'Seed Test Simulation Round'</b> in Tab 4 to generate sample live signals.
         </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         sig_rows = ""
         for s in recent_signals:
@@ -674,7 +674,7 @@ def render_tab2():
             </tr>
             """
 
-        st.markdown(f"""
+        st.html(f"""
         <div class="data-table-wrap">
             <table class="data-table">
                 <thead>
@@ -696,7 +696,7 @@ def render_tab2():
                 </tbody>
             </table>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
 
 # -----------------------------------------------------------------------------
@@ -709,11 +709,11 @@ def render_tab3():
     open_pos = db.get_open_positions()
 
     if not open_pos:
-        st.markdown("""
+        st.html("""
         <div style="background: #131316; border: 1px solid #1e1e24; border-radius: 8px; padding: 1.5rem; text-align: center; color: #71717a; margin-bottom: 1.5rem;">
             No active positions open. Capital is 100% in USDC cash reserves.
         </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         open_rows = ""
         now_ts = time.time()
@@ -738,7 +738,7 @@ def render_tab3():
             </tr>
             """
 
-        st.markdown(f"""
+        st.html(f"""
         <div class="data-table-wrap" style="margin-bottom: 1.5rem;">
             <table class="data-table">
                 <thead>
@@ -757,18 +757,18 @@ def render_tab3():
                 <tbody>{open_rows}</tbody>
             </table>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     st.markdown("<div style='font-size: 0.95rem; font-weight: 600; color: #fafafa; margin-bottom: 0.6rem;'>Settled Trades Audit Ledger (Agent 5 - The Ledger)</div>", unsafe_allow_html=True)
 
     settled_trades = db.get_settled_trades(limit=50)
 
     if not settled_trades:
-        st.markdown("""
+        st.html("""
         <div style="background: #131316; border: 1px solid #1e1e24; border-radius: 8px; padding: 1.5rem; text-align: center; color: #71717a;">
             No settled trades recorded in database yet.
         </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         settled_rows = ""
         for t in settled_trades:
@@ -791,7 +791,7 @@ def render_tab3():
             </tr>
             """
 
-        st.markdown(f"""
+        st.html(f"""
         <div class="data-table-wrap">
             <table class="data-table">
                 <thead>
@@ -811,7 +811,7 @@ def render_tab3():
                 <tbody>{settled_rows}</tbody>
             </table>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
 
 # -----------------------------------------------------------------------------
@@ -851,11 +851,11 @@ def render_tab4():
     recent_logs = db.get_recent_logs(limit=100, level_filter=level_filter)
 
     if not recent_logs:
-        st.markdown("""
+        st.html("""
         <div class="terminal-box" style="display: flex; align-items: center; justify-content: center; color: #71717a;">
             No system log records matching the filter.
         </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         log_lines = ""
         for log in recent_logs:
@@ -885,11 +885,11 @@ def render_tab4():
             </div>
             """
 
-        st.markdown(f"""
+        st.html(f"""
         <div class="terminal-box">
             {log_lines}
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
 
 # =============================================================================

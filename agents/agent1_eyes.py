@@ -1,4 +1,4 @@
-﻿"""
+"""
 Agent 1: Data Ingestion (The Eyes)
 Role: High-Frequency Data Ingestion & Feed Harmonizer
 Strategy Target: Short-Term Crypto Momentum Arbitrage (5m/15m markets)
@@ -112,7 +112,7 @@ class Agent1Eyes(BaseAgent):
         best_ask = float(asks[0][0])
         mid_price = (best_bid + best_ask) / 2.0
         spread = best_ask - best_bid
-        spread_bps = spread * 10000.0
+        spread_bps = (spread / mid_price * 10000.0) if mid_price > 0 else float("inf")
 
         # INSTRUCTION 3: Compute depth-within-5% and top 3 levels USDC depth
         top3_depth_usdc = sum(float(p) * float(s) for p, s in asks[:3])

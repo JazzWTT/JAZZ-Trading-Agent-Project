@@ -1,4 +1,4 @@
-﻿"""
+"""
 JAZZ Trading United Nation - Core Data Models
 Unified schemas for event packets, decision orders, execution records, and portfolio state.
 """
@@ -29,6 +29,8 @@ class EventPacket:
     top3_depth_usdc: float = 1200.0
     token_id: str = ""
     market_id: str = ""
+    strike_price: float = 0.0
+    realized_vol_60s: Optional[float] = None
 
     def to_packet_list(self) -> list:
         """Returns the strictly required JSON event packet format."""

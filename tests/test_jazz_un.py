@@ -106,7 +106,7 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(packet.spot_change_velocity_60s, 0.50, places=2)
         self.assertEqual(packet.polymarket_best_bid, 0.50)
         self.assertEqual(packet.polymarket_best_ask, 0.52)
-        self.assertAlmostEqual(packet.spread_bps, 200.0, places=1)
+        self.assertAlmostEqual(packet.spread_bps, 392.2, places=1)
 
         # Verify output JSON packet structure: [timestamp, asset_id, spot_price, spot_change_velocity_60s, polymarket_best_bid, polymarket_best_ask, spread_bps]
         plist = packet.to_packet_list()
@@ -133,26 +133,46 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
     # AGENT 2 (THE BRAIN) TESTS
     # ==========================================
     def test_agent2_pricing_lag_and_signal_thresholds(self):
-        """Directive 1, 2, 3: Delta calculation and gating conditions."""
-        # 1. Normal Valid Arbitrage Opportunity
+        """Directive 1, 2, 3: Delta calculation, gating conditions, and bidirectional signals."""
+        # 1. Normal Valid Arbitrage Opportunity (Upward Momentum -> YES)
         valid_packet = EventPacket(
             timestamp=time.time(),
             asset_id="BTC",
             spot_price=65000.0,
             spot_change_velocity_60s=0.45,  # > 0.3% trigger
             polymarket_best_bid=0.50,
-            polymarket_best_ask=0.52,
-            spread_bps=20.0,               # <= 50 bps limit
+            polymarket_best_ask=0.51,
+            spread_bps=198.0,              # <= 400 bps limit
             secs_remaining=300,            # 120s <= 300s <= 600s
             top3_depth_usdc=1500.0,        # > $500 USDC
             token_id="BTC-5M-YES"
         )
         order = self.brain.evaluate_packet(valid_packet)
-        self.assertIsNotNone(order, "Valid packet should generate decision order")
+        self.assertIsNotNone(order, "Valid upward packet should generate decision order")
         self.assertEqual(order.action, "BUY")
+        self.assertEqual(order.token_id, "BTC-5M-YES")
         self.assertTrue(order.delta >= 0.035, f"Delta {order.delta} must be >= 3.5%")
 
-        # 2. Rejection: Spread > 50 bps
+        # 2. Downward Momentum -> NO Token Decision Order
+        downward_packet = EventPacket(
+            timestamp=time.time(),
+            asset_id="BTC",
+            spot_price=65000.0,
+            spot_change_velocity_60s=-0.45,  # <= -0.3% trigger
+            polymarket_best_bid=0.50,
+            polymarket_best_ask=0.51,
+            spread_bps=198.0,
+            secs_remaining=300,
+            top3_depth_usdc=1500.0,
+            token_id="BTC-5M-YES"
+        )
+        down_order = self.brain.evaluate_packet(downward_packet)
+        self.assertIsNotNone(down_order, "Downward momentum burst should generate decision order")
+        self.assertEqual(down_order.action, "BUY")
+        self.assertEqual(down_order.token_id, "BTC-5M-NO")
+        self.assertTrue(down_order.delta >= 0.035, f"Delta {down_order.delta} must be >= 3.5%")
+
+        # 3. Rejection: Spread > 400 bps
         wide_spread_packet = EventPacket(
             timestamp=time.time(),
             asset_id="BTC",
@@ -160,37 +180,37 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spot_change_velocity_60s=0.50,
             polymarket_best_bid=0.45,
             polymarket_best_ask=0.55,
-            spread_bps=100.0,              # > 50 bps!
+            spread_bps=2000.0,             # > 400 bps!
             secs_remaining=300,
             top3_depth_usdc=1500.0,
             token_id="BTC-5M-YES"
         )
-        self.assertIsNone(self.brain.evaluate_packet(wide_spread_packet), "Should suppress if spread > 50 bps")
+        self.assertIsNone(self.brain.evaluate_packet(wide_spread_packet), "Should suppress if spread > 400 bps")
 
-        # 3. Rejection: Expiry in Danger Zone (< 2 min)
+        # 4. Rejection: Expiry in Danger Zone (< 2 min)
         danger_zone_packet = EventPacket(
             timestamp=time.time(),
             asset_id="BTC",
             spot_price=65000.0,
             spot_change_velocity_60s=0.50,
             polymarket_best_bid=0.50,
-            polymarket_best_ask=0.52,
-            spread_bps=20.0,
+            polymarket_best_ask=0.51,
+            spread_bps=198.0,
             secs_remaining=90,             # 90s < 120s (2 min)
             top3_depth_usdc=1500.0,
             token_id="BTC-5M-YES"
         )
         self.assertIsNone(self.brain.evaluate_packet(danger_zone_packet), "Should reject if < 2 mins to expiry")
 
-        # 4. Rejection: Insufficient Liquidity (< $500 USDC)
+        # 5. Rejection: Insufficient Liquidity (< $500 USDC)
         low_liq_packet = EventPacket(
             timestamp=time.time(),
             asset_id="BTC",
             spot_price=65000.0,
             spot_change_velocity_60s=0.50,
             polymarket_best_bid=0.50,
-            polymarket_best_ask=0.52,
-            spread_bps=20.0,
+            polymarket_best_ask=0.51,
+            spread_bps=198.0,
             secs_remaining=300,
             top3_depth_usdc=350.0,         # $350 < $500
             token_id="BTC-5M-YES"
@@ -244,22 +264,41 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
     # AGENT 4 (THE SHIELD) TESTS
     # ==========================================
     async def test_agent4_position_cap_and_circuit_breaker(self):
-        """Directive 1: 2% position size cap and 5% daily loss breaker."""
+        """Directive 1: 2% position size cap, spread guard (fail closed), and 5% daily loss breaker."""
         await self.shield.start()
         
-        # Test 1: Position Size Cap (2% of $10,000 = $200)
-        # Order requests 1000 shares @ $0.50 = $500 notional (exceeds $200 cap)
+        # Test 1: Fail Closed on missing spread telemetry
+        approved_commands = []
+        self.bus.subscribe("execution_commands", lambda o: approved_commands.append(o))
+
+        missing_telemetry_order = DecisionOrder(
+            signal_id="SIG-NO-SPREAD",
+            action="BUY",
+            token_id="ETH-15M-YES",
+            asset_id="ETH",
+            target_limit_price=0.50,
+            calculated_edge_bps=400.0,
+            max_size_shares=100.0
+        )
+        await self.shield.evaluate_signal_risk(missing_telemetry_order)
+        self.assertEqual(len(approved_commands), 0, "Must fail closed if spread telemetry is missing")
+
+        # Test 2: Reject if spread exceeds ceiling (e.g. 500 bps > 400 bps)
+        self.shield.latest_spreads_bps["ETH"] = 500.0
+        await self.shield.evaluate_signal_risk(missing_telemetry_order)
+        self.assertEqual(len(approved_commands), 0, "Must reject if spread > 400 bps")
+
+        # Test 3: Position Size Cap (2% of $10,000 = $200) with healthy spread
+        self.shield.latest_spreads_bps["ETH"] = 200.0
         oversized_order = DecisionOrder(
             signal_id="SIG-CAP",
             action="BUY",
             token_id="ETH-15M-YES",
+            asset_id="ETH",
             target_limit_price=0.50,
             calculated_edge_bps=400.0,
             max_size_shares=1000.0  # $500
         )
-        
-        approved_commands = []
-        self.bus.subscribe("execution_commands", lambda o: approved_commands.append(o))
         
         await self.shield.evaluate_signal_risk(oversized_order)
         self.assertEqual(len(approved_commands), 1)
@@ -268,7 +307,7 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(approved.max_size_shares, 400.0, places=1)
         self.assertAlmostEqual(approved.target_limit_price * approved.max_size_shares, 200.0, places=1)
 
-        # Test 2: Daily Loss Circuit Breaker (5% of $10,000 = $500 loss)
+        # Test 4: Daily Loss Circuit Breaker (5% of $10,000 = $500 loss)
         # Insert a simulated settled loss of -$550 in SQLite
         trade = TradeRecord(
             trade_id="TRD-LOSS",
@@ -291,10 +330,12 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
 
         # New orders should now be blocked
         approved_commands.clear()
+        self.shield.latest_spreads_bps["BTC"] = 200.0
         new_order = DecisionOrder(
             signal_id="SIG-BLOCKED",
             action="BUY",
             token_id="BTC-5M-YES",
+            asset_id="BTC",
             target_limit_price=0.50,
             calculated_edge_bps=400.0,
             max_size_shares=100.0
@@ -361,6 +402,60 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(is_reconciled)
         self.assertAlmostEqual(delta, 0.005, places=3)
+
+    # ==========================================
+    # INTEGRATION: END-TO-END PIPELINE TEST
+    # ==========================================
+    async def test_end_to_end_pipeline(self):
+        """Integration: Eyes -> Brain -> Shield -> Hands -> Ledger full async pipeline."""
+        await self.eyes.start()
+        await self.brain.start()
+        await self.shield.start()
+        await self.hands.start()
+        await self.ledger.start()
+
+        now = time.time()
+        # Seed 60s spot price history
+        self.eyes.update_spot_price("BTC", 64000.0, ts=now - 60.0)
+        self.eyes.update_spot_price("BTC", 64300.0, ts=now)  # +0.47% velocity
+
+        # Polymarket book update (spread ~198 bps < 400 bps ceiling, depth $510 > $500)
+        packet = self.eyes.update_polymarket_clob(
+            asset="BTC",
+            bids=[(0.50, 1000)],
+            asks=[(0.51, 1000)],
+            secs_remaining=300,
+            token_id="BTC-5M-YES",
+            market_id="MKT-BTC-5M",
+            ts=now
+        )
+        self.assertIsNotNone(packet)
+
+        # Publish packet to message bus
+        await self.eyes.emit_packet(packet)
+
+        # Allow event loop propagation through all 5 agents
+        await asyncio.sleep(0.4)
+
+        # 1. Verify Hands posted execution record to DB
+        with self.db._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM executions WHERE token_id = ?", ("BTC-5M-YES",))
+            row = cur.fetchone()
+            self.assertIsNotNone(row, "Hands must post execution record to database")
+            self.assertEqual(row["side"], "BUY")
+            self.assertEqual(row["status"], "POSTED")
+
+        # 2. Verify Ledger tracked position
+        self.assertEqual(len(self.ledger.open_positions), 1, "Ledger must track opened position")
+        trade_id = list(self.ledger.open_positions.keys())[0]
+        trade = self.ledger.open_positions[trade_id]
+        self.assertEqual(trade.token_id, "BTC-5M-YES")
+
+        # 3. Verify settlement lifecycle
+        pnl = self.ledger.settle_trade(trade_id, exit_price=0.55)
+        self.assertGreater(pnl, 0.0)
+        self.assertEqual(len(self.ledger.open_positions), 0)
 
 
 if __name__ == "__main__":

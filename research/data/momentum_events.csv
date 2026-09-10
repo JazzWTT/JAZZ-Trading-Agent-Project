@@ -1,0 +1,2 @@
+event_id,timestamp_utc,asset,market_id,token_id,outcome_side,strike_price,spot_at_t0,spot_velocity_60s,secs_remaining,realized_vol_60s,pm_best_bid_t0,pm_best_ask_t0,pm_spread_pct_t0,top3_depth_usdc_t0,pm_best_ask_t1s,pm_best_ask_t5s,pm_best_ask_t30s,model_fair_prob,model_minus_ask,feed_lag_ms,resolved_outcome,resolution_timestamp
+EVT-BTC-1789074956497,2026-09-10T21:15:56.497590+00:00,BTC,MKT-TEST-001,BTC-5M-TEST,YES,60000.0,60270.0,0.45,300,3.1274,0.5,0.52,3.92,1419.0,0.52,0.56,0.56,0.6775,0.1575,115.9,,2026-09-10T21:20:56.497591+00:00

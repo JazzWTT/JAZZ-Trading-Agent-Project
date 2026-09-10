@@ -97,9 +97,7 @@ async def run_simulation(rounds: int = 5):
                 )
 
                 if packet:
-                    # Update shield's spread cache
-                    shield.latest_spreads_bps[asset] = packet.spread_bps
-                    # Emit packet onto the bus for Agent 2
+                    # Emit packet onto the bus for Agent 2 and Agent 4
                     await eyes.emit_packet(packet)
 
             # Allow event loop to propagate: Eyes -> Brain -> Shield -> Hands -> Ledger
@@ -109,8 +107,10 @@ async def run_simulation(rounds: int = 5):
             if ledger.open_positions and r >= 2:
                 first_trade_id = list(ledger.open_positions.keys())[0]
                 trade = ledger.open_positions[first_trade_id]
-                # Settle at profit ($0.75 for a winning trade)
-                exit_price = 0.75
+                # Settle at market exit price (best bid in order book) rather than arbitrary constant
+                asset_sym = trade.token_id.split("-")[0]
+                current_contract = exchange.contracts.get(asset_sym, {})
+                exit_price = current_contract.get("best_bid", 0.50)
                 ledger.settle_trade(first_trade_id, exit_price=exit_price)
 
             await asyncio.sleep(0.5)

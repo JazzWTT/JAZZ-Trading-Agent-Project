@@ -36,10 +36,17 @@ class Agent4Shield(BaseAgent):
         await super().start()
         # Intercepts trade signals from Agent 2
         self.bus.subscribe("trade_signals", self.evaluate_signal_risk)
+        # Subscribes to live data feed to track spreads autonomously (failing closed on missing data)
+        self.bus.subscribe("data_feed", self.on_data_feed)
         # Listens for risk alerts from Agent 1 (The Eyes) and Agent 5 (The Ledger)
         self.bus.subscribe("risk_alerts", self.on_risk_alert)
         # Periodic 24h rolling loss refresh
         self._tasks.append(asyncio.create_task(self._monitor_circuit_breaker_loop()))
+
+    async def on_data_feed(self, packet):
+        """Continuously updates latest spread telemetry from Agent 1 data packets."""
+        if hasattr(packet, "asset_id") and hasattr(packet, "spread_bps"):
+            self.latest_spreads_bps[packet.asset_id] = packet.spread_bps
 
     async def on_risk_alert(self, alert: dict):
         """Processes real-time risk alerts and connectivity warnings."""
@@ -97,8 +104,15 @@ class Agent4Shield(BaseAgent):
             )
             order.max_size_shares = capped_shares
 
-        # Guard 2: Spread Guard (Block if spread > 50 bps)
-        market_spread_bps = self.latest_spreads_bps.get(order.asset_id, 0.0)
+        # Guard 2: Spread Guard (FAIL CLOSED on missing telemetry, block if spread > ceiling)
+        market_spread_bps = self.latest_spreads_bps.get(order.asset_id)
+        if market_spread_bps is None:
+            self.logger.warning(
+                f"[SPREAD GUARD BLOCKED] No spread telemetry available for asset {order.asset_id}. "
+                f"Failing closed — order {order.signal_id} rejected."
+            )
+            return
+
         if market_spread_bps > self.config.risk.max_spread_bps_shield:
             self.logger.warning(
                 f"[SPREAD GUARD BLOCKED] Target market spread {market_spread_bps:.1f} bps exceeds "

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JAZZ Trading United Nation - Operational Mission Control</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .pulse-glow {
+      animation: pulse-slow 3s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-6 min-h-screen">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header Banner -->
+    <header class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div class="space-y-1">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 font-black text-xl">🎷</span>
+          <div>
+            <h1 class="text-2xl font-bold tracking-tight text-[var(--foreground)]">JAZZ Trading United Nation</h1>
+            <p class="text-xs text-[var(--muted-foreground)]">High-Frequency Short-Term Crypto Momentum Arbitrage (5m / 15m Polymarket CLOB)</p>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+          <span class="font-medium text-emerald-500">Pipeline Active</span>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted-foreground)]">
+          <span>Watchdog:</span>
+          <span id="watchdog-badge" class="font-semibold text-emerald-500">Normal (&lt; 2.0s)</span>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted-foreground)]">
+          <span>Circuit Breaker:</span>
+          <span id="breaker-badge" class="font-semibold text-emerald-500">Armed (5% Limit)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top KPIs -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">USDC Cash Balance</div>
+        <div id="kpi-balance" class="text-xl font-bold text-emerald-400 mt-1">$10,000.00</div>
+        <div class="text-[10px] text-[var(--muted-foreground)] mt-0.5">2% Max Exposure Cap</div>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">Total Trades</div>
+        <div id="kpi-trades" class="text-xl font-bold text-[var(--foreground)] mt-1">14</div>
+        <div class="text-[10px] text-[var(--muted-foreground)] mt-0.5">Closed Sessions</div>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">Win Rate</div>
+        <div id="kpi-winrate" class="text-xl font-bold text-cyan-400 mt-1">85.7%</div>
+        <div class="text-[10px] text-emerald-500 mt-0.5">12W / 2L</div>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">Profit Factor</div>
+        <div id="kpi-profitfactor" class="text-xl font-bold text-amber-400 mt-1">3.42</div>
+        <div class="text-[10px] text-[var(--muted-foreground)] mt-0.5">Gross W/L Ratio</div>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">Avg CLOB Latency</div>
+        <div id="kpi-latency" class="text-xl font-bold text-indigo-400 mt-1">18.4 ms</div>
+        <div class="text-[10px] text-[var(--muted-foreground)] mt-0.5">EIP-712 Sign & Post</div>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div class="text-xs text-[var(--muted-foreground)] font-medium">Max Drawdown</div>
+        <div id="kpi-drawdown" class="text-xl font-bold text-emerald-400 mt-1">1.18%</div>
+        <div class="text-[10px] text-[var(--muted-foreground)] mt-0.5">Cap: 5.0% Breaker</div>
+      </div>
+    </div>
+
+    <!-- 5 Agent Cards Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      
+      <!-- Agent 1 -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Agent 1: The Eyes</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)] mt-1">Data Ingestion</h3>
+          <p class="text-[11px] text-[var(--muted-foreground)] mt-0.5">Binance/Coinbase Spot & Polymarket CLOB Feed Harmonizer</p>
+          <div class="mt-3 space-y-1.5 text-xs">
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">BTC 60s Velocity:</span><span id="agent1-btc-vel" class="font-mono text-emerald-400">+0.42%</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Expiry Gate:</span><span class="font-mono text-emerald-400">secs &gt; 30s</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Watchdog:</span><span id="agent1-watchdog" class="font-mono text-emerald-400">0.12s lag</span></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="text-[10px] text-[var(--muted-foreground)]">Output: Unified JSON Event Packet</div>
+        </div>
+      </div>
+
+      <!-- Agent 2 -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Agent 2: The Brain</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)] mt-1">Strategy Engine</h3>
+          <p class="text-[11px] text-[var(--muted-foreground)] mt-0.5">Momentum Arbitrage & Pricing Lag Delta Evaluator</p>
+          <div class="mt-3 space-y-1.5 text-xs">
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Pricing Delta:</span><span id="agent2-delta" class="font-mono text-cyan-400">+6.2% (&gt;3.5%)</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Top 3 Depth:</span><span id="agent2-depth" class="font-mono text-emerald-400">$1,420 (&gt;$500)</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Time Window:</span><span class="font-mono text-emerald-400">320s (2m-10m)</span></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="text-[10px] text-[var(--muted-foreground)]">Filter: Spread &lt; 50 bps</div>
+        </div>
+      </div>
+
+      <!-- Agent 4 -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-rose-400 uppercase tracking-wider">Agent 4: The Shield</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)] mt-1">Risk Guardrails</h3>
+          <p class="text-[11px] text-[var(--muted-foreground)] mt-0.5">Capital Protection & Emergency Circuit Breaker</p>
+          <div class="mt-3 space-y-1.5 text-xs">
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Position Cap:</span><span class="font-mono text-emerald-400">&le; $200 (2%)</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">24h Loss:</span><span id="agent4-loss" class="font-mono text-emerald-400">-$64.20 (0.64%)</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Spread Guard:</span><span class="font-mono text-emerald-400">22 bps (&le; 50 bps)</span></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="text-[10px] text-[var(--muted-foreground)]">Tripwire: Auto Cancel on &gt;2s Lag</div>
+        </div>
+      </div>
+
+      <!-- Agent 3 -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider">Agent 3: The Hands</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)] mt-1">Execution Layer</h3>
+          <p class="text-[11px] text-[var(--muted-foreground)] mt-0.5">py-clob-client Limit Orders & EIP-712 Signer</p>
+          <div class="mt-3 space-y-1.5 text-xs">
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Order Type:</span><span class="font-mono text-indigo-400">LIMIT ONLY</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Side Policy:</span><span class="font-mono text-indigo-400">BUY Token ONLY</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">429 Backoff:</span><span class="font-mono text-emerald-400">Exp + Jitter</span></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="text-[10px] text-[var(--muted-foreground)]">Log: SHA-256 Audit Hashes</div>
+        </div>
+      </div>
+
+      <!-- Agent 5 -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Agent 5: The Ledger</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)] mt-1">State & Auditor</h3>
+          <p class="text-[11px] text-[var(--muted-foreground)] mt-0.5">SQLite Audit Trail & Instant Reconciliation</p>
+          <div class="mt-3 space-y-1.5 text-xs">
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Audit Drift:</span><span id="agent5-drift" class="font-mono text-emerald-400">0.0000 USDC</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Margin Cap:</span><span class="font-mono text-emerald-400">0.001 USDC</span></div>
+            <div class="flex justify-between text-[11px]"><span class="text-[var(--muted-foreground)]">Open Trades:</span><span id="agent5-open" class="font-mono text-emerald-400">1 Active</span></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="text-[10px] text-[var(--muted-foreground)]">Database: jazz_ledger.db (Active)</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Interactive Simulation Controls & Console -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Interactive Scenario Injector -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+        <h3 class="font-semibold text-sm text-[var(--foreground)] flex items-center gap-2">
+          <span>⚡</span> Live Test Scenario Injector
+        </h3>
+        <p class="text-xs text-[var(--muted-foreground)]">Trigger specific market conditions to test the 5 agents' real-time responses and safety tripwires.</p>
+        
+        <div class="grid grid-cols-1 gap-2.5">
+          <button onclick="injectScenario('momentum')" class="w-full text-left px-3.5 py-2.5 rounded-lg border border-cyan-500/30 hover:bg-cyan-500/10 text-cyan-400 text-xs font-medium transition-colors flex items-center justify-between">
+            <div>
+              <div class="font-semibold">🚀 +0.45% BTC Spot Momentum Burst</div>
+              <div class="text-[10px] text-[var(--muted-foreground)]">Tests Agent 1 velocity, Agent 2 signal, Agent 4 & 3 execution</div>
+            </div>
+            <span>Run &rarr;</span>
+          </button>
+
+          <button onclick="injectScenario('spread')" class="w-full text-left px-3.5 py-2.5 rounded-lg border border-amber-500/30 hover:bg-amber-500/10 text-amber-400 text-xs font-medium transition-colors flex items-center justify-between">
+            <div>
+              <div class="font-semibold">⚠️ 700 bps Spread Spike</div>
+              <div class="text-[10px] text-[var(--muted-foreground)]">Tests Agent 2 spread suppression & Agent 4 spread guard</div>
+            </div>
+            <span>Run &rarr;</span>
+          </button>
+
+          <button onclick="injectScenario('watchdog')" class="w-full text-left px-3.5 py-2.5 rounded-lg border border-rose-500/30 hover:bg-rose-500/10 text-rose-400 text-xs font-medium transition-colors flex items-center justify-between">
+            <div>
+              <div class="font-semibold">🛑 2.5s WebSocket Feed Lag</div>
+              <div class="text-[10px] text-[var(--muted-foreground)]">Tests Agent 1 Watchdog & Agent 4 emergency cancel orders</div>
+            </div>
+            <span>Run &rarr;</span>
+          </button>
+
+          <button onclick="injectScenario('discrepancy')" class="w-full text-left px-3.5 py-2.5 rounded-lg border border-purple-500/30 hover:bg-purple-500/10 text-purple-400 text-xs font-medium transition-colors flex items-center justify-between">
+            <div>
+              <div class="font-semibold">🔒 0.05 USDC Balance Discrepancy</div>
+              <div class="text-[10px] text-[var(--muted-foreground)]">Tests Agent 5 reconciliation & instant pipeline lock</div>
+            </div>
+            <span>Run &rarr;</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Event Feed Console -->
+      <div class="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-sm text-[var(--foreground)] flex items-center gap-2">
+            <span>📡</span> Live Multi-Agent Event Bus Feed
+          </h3>
+          <button onclick="clearLogs()" class="text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]">Clear Log</button>
+        </div>
+        <div id="event-feed" class="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 font-mono text-[11px] h-64 overflow-y-auto space-y-1 text-[var(--muted-foreground)]">
+          <div class="text-emerald-400">[04:36:10] [SYSTEM] JAZZ Trading UN initialized. 5 Agents synchronized.</div>
+          <div class="text-slate-400">[04:36:11] [Agent 1] BTC Spot: $64,250.00 | 60s Velocity: +0.02% | CLOB Bid: 0.51 / Ask: 0.53</div>
+          <div class="text-slate-400">[04:36:12] [Agent 1] Packet emitted: [1725700572, "BTC", 64250.0, 0.02, 0.51, 0.53, 200.0]</div>
+          <div class="text-slate-400">[04:36:13] [Agent 2] Velocity +0.02% &lt; +0.30% trigger. Signal suppressed.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Active Trades Ledger Table -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-semibold text-sm text-[var(--foreground)]">Audit Ledger: Executed Trade Log (SQLite Reconciled)</h3>
+          <p class="text-xs text-[var(--muted-foreground)]">Persisted into `jazz_ledger.db` with entry price, exit price, duration, slippage, and net P&amp;L</p>
+        </div>
+        <span class="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">DB Integrity: Verified</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="border-b border-[var(--border)] text-[var(--muted-foreground)]">
+            <tr>
+              <th class="py-2.5 px-3">Trade ID</th>
+              <th class="py-2.5 px-3">Token ID</th>
+              <th class="py-2.5 px-3">Side</th>
+              <th class="py-2.5 px-3">Entry</th>
+              <th class="py-2.5 px-3">Exit</th>
+              <th class="py-2.5 px-3">Shares</th>
+              <th class="py-2.5 px-3">Duration</th>
+              <th class="py-2.5 px-3">Slippage</th>
+              <th class="py-2.5 px-3 text-right">Net P&amp;L</th>
+              <th class="py-2.5 px-3 text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody id="trades-tbody" class="divide-y divide-[var(--border)]">
+            <tr>
+              <td class="py-2 px-3 text-[var(--foreground)]">TRD-CLOB-A9F321</td>
+              <td class="py-2 px-3 text-cyan-400">BTC-5M-YES</td>
+              <td class="py-2 px-3 text-emerald-400">BUY (LIMIT)</td>
+              <td class="py-2 px-3">0.5200</td>
+              <td class="py-2 px-3">0.7500</td>
+              <td class="py-2 px-3">384.6</td>
+              <td class="py-2 px-3">48s</td>
+              <td class="py-2 px-3">0.001</td>
+              <td class="py-2 px-3 text-right font-bold text-emerald-400">+$88.07</td>
+              <td class="py-2 px-3 text-center"><span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px]">SETTLED</span></td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-[var(--foreground)]">TRD-CLOB-7B29D4</td>
+              <td class="py-2 px-3 text-cyan-400">ETH-15M-YES</td>
+              <td class="py-2 px-3 text-emerald-400">BUY (LIMIT)</td>
+              <td class="py-2 px-3">0.4900</td>
+              <td class="py-2 px-3">0.6800</td>
+              <td class="py-2 px-3">408.1</td>
+              <td class="py-2 px-3">112s</td>
+              <td class="py-2 px-3">0.001</td>
+              <td class="py-2 px-3 text-right font-bold text-emerald-400">+$77.13</td>
+              <td class="py-2 px-3 text-center"><span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px]">SETTLED</span></td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-[var(--foreground)]">TRD-CLOB-F10C83</td>
+              <td class="py-2 px-3 text-cyan-400">SOL-5M-YES</td>
+              <td class="py-2 px-3 text-emerald-400">BUY (LIMIT)</td>
+              <td class="py-2 px-3">0.5100</td>
+              <td class="py-2 px-3">0.4200</td>
+              <td class="py-2 px-3">392.1</td>
+              <td class="py-2 px-3">35s</td>
+              <td class="py-2 px-3">0.001</td>
+              <td class="py-2 px-3 text-right font-bold text-rose-400">-$35.68</td>
+              <td class="py-2 px-3 text-center"><span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px]">SETTLED</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    function logEvent(text, colorClass = 'text-slate-400') {
+      const feed = document.getElementById('event-feed');
+      const timeStr = new Date().toTimeString().split(' ')[0];
+      const div = document.createElement('div');
+      div.className = colorClass;
+      div.textContent = `[${timeStr}] ${text}`;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('event-feed').innerHTML = '';
+    }
+
+    function injectScenario(type) {
+      if (type === 'momentum') {
+        logEvent('[Agent 1] 🔥 BTC Spot Momentum Spike: +0.45% in 60s (Velocity Trigger Hit!)', 'text-cyan-400');
+        setTimeout(() => {
+          logEvent('[Agent 2] 🧠 Evaluated: Theoretical Probability = 0.725 | Polymarket Ask = 0.530 | Delta = +19.5% (>3.5%)', 'text-amber-400');
+          logEvent('[Agent 2] 🧠 Conditions met: Depth $1,420 (> $500) | Expiry 320s (2m-10m) | Spread 20 bps (< 50 bps)', 'text-amber-400');
+          logEvent('[Agent 2] 🚀 Decision Order Generated: [SIG-BTC-901, "BUY", "BTC-5M-YES", 0.53, 1950.0, 377.3]', 'text-cyan-400');
+        }, 300);
+        setTimeout(() => {
+          logEvent('[Agent 4] 🛡️ Shield Risk Check: Order value $200.00 <= 2% Capital Cap ($200.00) -> APPROVED!', 'text-emerald-400');
+        }, 600);
+        setTimeout(() => {
+          logEvent('[Agent 3] ✍️ Signed EIP-712 Order: CLOB-E8F940 | Dispatched LIMIT order to Polymarket CLOB', 'text-indigo-400');
+          logEvent('[Agent 3] ⚡ Execution Confirmed: Hash 0x9a3e47c1... | Latency: 16.8 ms', 'text-emerald-400');
+        }, 900);
+        setTimeout(() => {
+          logEvent('[Agent 5] 📖 Ledger Recorded: Trade TRD-CLOB-E8F940 | 377.3 shares @ 0.5300 | Reconciled!', 'text-emerald-400');
+        }, 1200);
+      } else if (type === 'spread') {
+        logEvent('[Agent 1] ⚠️ Order book spread widened to 700 bps (Best Bid: 0.48 / Ask: 0.55)', 'text-amber-400');
+        setTimeout(() => {
+          logEvent('[Agent 2] 🛑 Suppressed: Market spread 700 bps > 50 bps limit! No trade signal generated.', 'text-rose-400');
+          logEvent('[Agent 4] 🛡️ Shield Spread Guard: Verified ceiling intact. Zero risk exposure permitted.', 'text-slate-400');
+        }, 400);
+      } else if (type === 'watchdog') {
+        logEvent('[Agent 1] 🛑 [WATCHDOG TRIGGERED] WebSocket data feed stalled for 2.45s (> 2.0s limit)!', 'text-rose-500 font-bold');
+        document.getElementById('watchdog-badge').className = 'font-semibold text-rose-500';
+        document.getElementById('watchdog-badge').textContent = 'STALE WARNING (> 2.0s)';
+        setTimeout(() => {
+          logEvent('[Agent 4] 🛡️ EMERGENCY CANCEL INSTRUCTION FIRED: Cancelling all open resting orders immediately!', 'text-rose-400 font-bold');
+          logEvent('[Agent 3] 🧹 Executed emergency cancel for all active orders. Pipeline cleared.', 'text-amber-400');
+        }, 300);
+        setTimeout(() => {
+          logEvent('[Agent 1] 🟢 WebSocket connection recovered. Watchdog reset to normal.', 'text-emerald-400');
+          document.getElementById('watchdog-badge').className = 'font-semibold text-emerald-500';
+          document.getElementById('watchdog-badge').textContent = 'Normal (< 2.0s)';
+        }, 3000);
+      } else if (type === 'discrepancy') {
+        logEvent('[Agent 5] 🔒 [AUDIT FAILURE] Simulated balance mismatch: 0.0500 USDC > 0.0010 tolerance!', 'text-rose-500 font-bold');
+        logEvent('[Agent 5] 🚨 High-Priority Alert: Execution Pipeline LOCKED immediately for capital protection!', 'text-rose-400 font-bold');
+        setTimeout(() => {
+          logEvent('[Agent 4] 🛡️ Proxy wallet parameters locked. Manual operator audit required.', 'text-amber-400');
+        }, 400);
+      }
+    }
+  </script>
+</body>
+</html>

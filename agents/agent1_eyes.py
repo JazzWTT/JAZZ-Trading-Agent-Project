@@ -35,11 +35,57 @@ class Agent1Eyes(BaseAgent):
         self.last_spot_update_ts: float = time.time()
         self.last_clob_update_ts: float = time.time()
         self.stale_flag: bool = False
+        
+        # Live Feed Managers
+        self.live_spot_mgr = None
+        self.live_pm_mgr = None
 
     async def start(self):
         await super().start()
         # Launch Watchdog Timer Loop
         self._tasks.append(asyncio.create_task(self._watchdog_loop()))
+
+    def attach_live_feeds(self, spot_mgr, pm_mgr):
+        """Attaches live WebSocket feed managers to Agent 1."""
+        self.live_spot_mgr = spot_mgr
+        self.live_pm_mgr = pm_mgr
+        self.live_spot_mgr.on_tick = self._on_live_spot_tick
+        self.live_pm_mgr.on_book_update = self._on_live_clob_update
+        self.logger.info("Live data feeds successfully attached to Agent 1 (The Eyes).")
+
+    def _on_live_spot_tick(self, asset: str, price: float, ts: float):
+        self.update_spot_price(asset, price, ts)
+
+    def _on_live_clob_update(
+        self,
+        asset: str,
+        bids: list,
+        asks: list,
+        secs_remaining: int,
+        token_id: str,
+        market_id: str,
+        ts: float
+    ):
+        strike = 0.0
+        if self.live_pm_mgr and asset in self.live_pm_mgr.target_markets:
+            strike = self.live_pm_mgr.target_markets[asset].get("strike_price", 0.0)
+            
+        packet = self.update_polymarket_clob(
+            asset=asset,
+            bids=bids,
+            asks=asks,
+            secs_remaining=secs_remaining,
+            token_id=token_id,
+            market_id=market_id,
+            strike_price=strike,
+            ts=ts
+        )
+        if packet and self.is_running:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.emit_packet(packet))
+            except RuntimeError:
+                pass
 
     def update_spot_price(self, asset: str, price: float, ts: Optional[float] = None):
         """
@@ -91,6 +137,7 @@ class Agent1Eyes(BaseAgent):
         secs_remaining: int,
         token_id: str,
         market_id: str = "",
+        strike_price: float = 0.0,
         ts: Optional[float] = None
     ) -> Optional[EventPacket]:
         """
@@ -137,7 +184,8 @@ class Agent1Eyes(BaseAgent):
             secs_remaining=secs_remaining,
             top3_depth_usdc=top3_depth_usdc,
             token_id=token_id,
-            market_id=market_id
+            market_id=market_id,
+            strike_price=strike_price
         )
 
         self.clob_books[asset] = {

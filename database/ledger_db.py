@@ -99,17 +99,35 @@ class LedgerDB:
                 last_heartbeat REAL,
                 htx_feed_status TEXT DEFAULT 'ONLINE',
                 polymarket_latency_ms REAL DEFAULT 38.5,
-                htx_spot_price REAL DEFAULT 64250.0,
+                htx_spot_price REAL DEFAULT 77100.0,
                 htx_velocity_60s REAL DEFAULT 0.0,
+                eth_spot_price REAL DEFAULT 2460.0,
+                eth_velocity_60s REAL DEFAULT 0.0,
+                sol_spot_price REAL DEFAULT 100.0,
+                sol_velocity_60s REAL DEFAULT 0.0,
                 updated_at REAL
             )
             """)
+
+            # Ensure columns exist if table was created earlier
+            for col_sql in [
+                "ALTER TABLE bot_control ADD COLUMN eth_spot_price REAL DEFAULT 2460.0",
+                "ALTER TABLE bot_control ADD COLUMN eth_velocity_60s REAL DEFAULT 0.0",
+                "ALTER TABLE bot_control ADD COLUMN sol_spot_price REAL DEFAULT 100.0",
+                "ALTER TABLE bot_control ADD COLUMN sol_velocity_60s REAL DEFAULT 0.0"
+            ]:
+                try:
+                    cur.execute(col_sql)
+                except Exception:
+                    pass
+
             cur.execute("""
             INSERT OR IGNORE INTO bot_control (
                 id, status, kill_switch, max_position_pct, daily_loss_limit_pct,
                 min_profit_threshold_pct, max_spread_bps, last_heartbeat,
-                htx_feed_status, polymarket_latency_ms, htx_spot_price, htx_velocity_60s, updated_at
-            ) VALUES (1, 'STOPPED', 0, 2.0, 5.0, 3.5, 400.0, ?, 'ONLINE', 38.5, 64250.0, 0.0, ?)
+                htx_feed_status, polymarket_latency_ms, htx_spot_price, htx_velocity_60s,
+                eth_spot_price, eth_velocity_60s, sol_spot_price, sol_velocity_60s, updated_at
+            ) VALUES (1, 'STOPPED', 0, 2.0, 5.0, 3.5, 400.0, ?, 'ONLINE', 38.5, 77100.0, 0.0, 2460.0, 0.0, 100.0, 0.0, ?)
             """, (time.time(), time.time()))
 
             # Live signals table
@@ -389,7 +407,12 @@ class LedgerDB:
             cur.execute("SELECT * FROM bot_control WHERE id = 1")
             row = cur.fetchone()
             if row:
-                return dict(row)
+                d = dict(row)
+                d.setdefault("eth_spot_price", 2460.0)
+                d.setdefault("eth_velocity_60s", 0.0)
+                d.setdefault("sol_spot_price", 100.0)
+                d.setdefault("sol_velocity_60s", 0.0)
+                return d
             return {
                 "id": 1,
                 "status": "STOPPED",
@@ -401,8 +424,12 @@ class LedgerDB:
                 "last_heartbeat": 0.0,
                 "htx_feed_status": "ONLINE",
                 "polymarket_latency_ms": 38.5,
-                "htx_spot_price": 64250.0,
+                "htx_spot_price": 77100.0,
                 "htx_velocity_60s": 0.0,
+                "eth_spot_price": 2460.0,
+                "eth_velocity_60s": 0.0,
+                "sol_spot_price": 100.0,
+                "sol_velocity_60s": 0.0,
                 "updated_at": 0.0
             }
 

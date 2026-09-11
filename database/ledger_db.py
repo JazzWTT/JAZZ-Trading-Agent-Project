@@ -179,6 +179,25 @@ class LedgerDB:
                 pnl_24h REAL
             )
             """)
+
+            # Brier Score Calibration Tournament table
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS brier_calibration (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                asset_id TEXT,
+                market_id TEXT,
+                token_id TEXT,
+                strike_price REAL,
+                expiry_ts REAL,
+                model_fair_prob REAL,
+                market_mid_price REAL,
+                actual_outcome INTEGER,
+                brier_model REAL,
+                brier_market REAL,
+                status TEXT DEFAULT 'PENDING'
+            )
+            """)
             conn.commit()
 
     def log_execution(self, record: ExecutionRecord):
@@ -316,6 +335,7 @@ class LedgerDB:
             cur.execute("DELETE FROM portfolio_history")
             cur.execute("DELETE FROM signals")
             cur.execute("DELETE FROM system_logs")
+            cur.execute("DELETE FROM brier_calibration")
             now = time.time()
             cur.execute("""
             INSERT INTO portfolio_history (timestamp, equity_usdc, cash_usdc, open_exposure_usdc, pnl_24h)
@@ -551,6 +571,128 @@ class LedgerDB:
             cur = conn.cursor()
             cur.execute("SELECT * FROM trades WHERE status = 'SETTLED' ORDER BY exit_time DESC LIMIT ?", (limit,))
             return [dict(r) for r in cur.fetchall()]
+
+    # =========================================================================
+    # BRIER SCORE CALIBRATION TOURNAMENT
+    # =========================================================================
+    def record_brier_prediction(
+        self,
+        asset_id: str,
+        market_id: str,
+        token_id: str,
+        strike_price: float,
+        expiry_ts: float,
+        model_fair_prob: float,
+        market_mid_price: float
+    ):
+        """Records an independent model forecast vs market quote at entry."""
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            # Throttle to avoid duplicate pending records for the same token in a short window
+            cur.execute("""
+            SELECT id FROM brier_calibration 
+            WHERE token_id = ? AND status = 'PENDING' AND timestamp > ?
+            """, (token_id, time.time() - 60.0))
+            if cur.fetchone():
+                return
+
+            cur.execute("""
+            INSERT INTO brier_calibration (
+                timestamp, asset_id, market_id, token_id, strike_price,
+                expiry_ts, model_fair_prob, market_mid_price, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+            """, (
+                time.time(), asset_id, market_id, token_id, strike_price,
+                expiry_ts, model_fair_prob, market_mid_price
+            ))
+            conn.commit()
+
+    def resolve_expired_brier_predictions(
+        self,
+        current_spot_prices: Dict[str, float],
+        now_ts: Optional[float] = None
+    ) -> int:
+        """
+        Resolves pending predictions where expiry_ts <= now_ts.
+        Calculates:
+          actual_outcome = 1 if spot >= strike_price else 0
+          brier_model = (model_fair_prob - actual_outcome)^2
+          brier_market = (market_mid_price - actual_outcome)^2
+        """
+        now = now_ts or time.time()
+        resolved_count = 0
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT id, asset_id, strike_price, model_fair_prob, market_mid_price 
+            FROM brier_calibration 
+            WHERE status = 'PENDING' AND expiry_ts <= ?
+            """, (now,))
+            rows = cur.fetchall()
+
+            for row in rows:
+                row_id = row["id"]
+                asset = row["asset_id"]
+                strike = row["strike_price"]
+                p_model = row["model_fair_prob"]
+                p_mkt = row["market_mid_price"]
+                spot = current_spot_prices.get(asset, 0.0)
+
+                if spot <= 0 or strike <= 0:
+                    continue
+
+                outcome = 1 if spot >= strike else 0
+                b_model = (p_model - outcome) ** 2
+                b_mkt = (p_mkt - outcome) ** 2
+
+                cur.execute("""
+                UPDATE brier_calibration SET
+                    actual_outcome = ?,
+                    brier_model = ?,
+                    brier_market = ?,
+                    status = 'RESOLVED'
+                WHERE id = ?
+                """, (outcome, round(b_model, 6), round(b_mkt, 6), row_id))
+                resolved_count += 1
+
+            conn.commit()
+        return resolved_count
+
+    def get_brier_metrics(self, limit: int = 50) -> dict:
+        """
+        Computes overall Brier scores:
+        Brier Score = 1/N * sum((forecast - outcome)^2)
+        Lower is better!
+        skill_delta = brier_market - brier_model (positive means model beat market)
+        """
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT COUNT(*), AVG(brier_model), AVG(brier_market)
+            FROM brier_calibration
+            WHERE status = 'RESOLVED'
+            """)
+            row = cur.fetchone()
+            count = row[0] or 0
+            avg_model = row[1] or 0.0
+            avg_mkt = row[2] or 0.0
+
+            cur.execute("""
+            SELECT * FROM brier_calibration
+            WHERE status = 'RESOLVED'
+            ORDER BY expiry_ts DESC LIMIT ?
+            """, (limit,))
+            recent = [dict(r) for r in cur.fetchall()]
+
+        skill_delta = (avg_mkt - avg_model) if count > 0 else 0.0
+        return {
+            "total_evaluated": count,
+            "brier_model": round(avg_model, 4),
+            "brier_market": round(avg_mkt, 4),
+            "skill_delta": round(skill_delta, 4),
+            "has_statistical_edge": (skill_delta > 0.0 and count >= 10),
+            "recent_evaluations": recent
+        }
 
 
 class SQLiteLogHandler(logging.Handler):

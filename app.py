@@ -633,6 +633,107 @@ def render_tab1():
         </div>
         """, unsafe_allow_html=True)
 
+    # Row 4: Model vs. Market Brier Score Calibration Tournament
+    st.markdown("<div style='height: 22px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.6rem;">
+        <div>
+            <div style="font-size: 0.95rem; font-weight: 600; color: #fafafa;">Brier Score Calibration Tournament (Model vs. Market Mid-Quote)</div>
+            <div style="font-size: 0.75rem; color: #71717a;">Quant Reality Check: Mean squared error on binary expiry outcomes. Lower is better. Model Outperformance (&Delta; &gt; 0) proves statistical edge.</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    brier_data = db.get_brier_metrics(limit=10)
+    total_eval = brier_data.get("total_evaluated", 0)
+    b_model = brier_data.get("brier_model", 0.0)
+    b_mkt = brier_data.get("brier_market", 0.0)
+    skill_delta = brier_data.get("skill_delta", 0.0)
+    has_edge = brier_data.get("has_statistical_edge", False)
+
+    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
+    with b_col1:
+        st.html(f"""
+        <div class="metric-card">
+            <div class="metric-label">Model Brier Score</div>
+            <div class="metric-value">{b_model:.4f}</div>
+            <div class="metric-delta delta-up">Target: &lt; 0.2500 (Ref: 0.0 = Perfect)</div>
+        </div>
+        """)
+    with b_col2:
+        st.html(f"""
+        <div class="metric-card">
+            <div class="metric-label">Market Mid Brier Score</div>
+            <div class="metric-value">{b_mkt:.4f}</div>
+            <div class="metric-delta delta-warn">Polymarket Consensus Benchmark</div>
+        </div>
+        """)
+    with b_col3:
+        if skill_delta > 0:
+            delta_class = "delta-up"
+            delta_icon = "▲"
+            delta_desc = "Model Outperforms Market"
+        elif skill_delta < 0:
+            delta_class = "delta-down"
+            delta_icon = "▼"
+            delta_desc = "Market Outperforms Model"
+        else:
+            delta_class = "delta-warn"
+            delta_icon = "■"
+            delta_desc = "Parity / Awaiting Expiries"
+
+        st.html(f"""
+        <div class="metric-card">
+            <div class="metric-label">Skill Delta (&Delta; = Mkt - Model)</div>
+            <div class="metric-value">{skill_delta:+.4f}</div>
+            <div class="metric-delta {delta_class}">{delta_icon} {delta_desc}</div>
+        </div>
+        """)
+    with b_col4:
+        if total_eval < 10:
+            badge_html = f'<span class="badge badge-amber">CALIBRATING ({total_eval}/10 Resolved)</span>'
+            status_desc = "Sampling Live Market Expiries"
+        elif has_edge:
+            badge_html = f'<span class="badge badge-green">STATISTICAL EDGE VERIFIED</span>'
+            status_desc = f"{total_eval} Contracts Evaluated"
+        else:
+            badge_html = f'<span class="badge badge-red">MARKET DOMINANT (ZERO EDGE)</span>'
+            status_desc = f"{total_eval} Contracts Evaluated"
+
+        st.html(f"""
+        <div class="metric-card">
+            <div class="metric-label">Statistical Validation Verdict</div>
+            <div style="margin-top: 0.4rem; margin-bottom: 0.35rem;">{badge_html}</div>
+            <div class="metric-delta delta-warn" style="color: #a1a1aa; background: rgba(161,161,170,0.12);">{status_desc}</div>
+        </div>
+        """)
+
+    recent_brier = brier_data.get("recent_evaluations", [])
+    if recent_brier:
+        brier_df = pd.DataFrame(recent_brier)
+        brier_df["Expiry Time"] = pd.to_datetime(brier_df["expiry_ts"], unit="s").dt.strftime("%Y-%m-%d %H:%M:%S")
+        brier_df["Asset"] = brier_df["asset_id"]
+        brier_df["Strike"] = brier_df["strike_price"].apply(lambda x: f"${x:,.2f}")
+        brier_df["Model Prob"] = brier_df["model_fair_prob"].apply(lambda x: f"{x:.4f}")
+        brier_df["Market Mid"] = brier_df["market_mid_price"].apply(lambda x: f"{x:.4f}")
+        brier_df["Outcome (Y)"] = brier_df["actual_outcome"].apply(lambda x: "UP (1)" if x == 1 else "DOWN (0)")
+        brier_df["Model Error Sq"] = brier_df["brier_model"].apply(lambda x: f"{x:.4f}")
+        brier_df["Market Error Sq"] = brier_df["brier_market"].apply(lambda x: f"{x:.4f}")
+        brier_df["Winner"] = brier_df.apply(lambda r: "Model" if r["brier_model"] < r["brier_market"] else ("Market" if r["brier_market"] < r["brier_model"] else "Tie"), axis=1)
+
+        display_cols = ["Expiry Time", "Asset", "Strike", "Model Prob", "Market Mid", "Outcome (Y)", "Model Error Sq", "Market Error Sq", "Winner"]
+        st.dataframe(
+            brier_df[display_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.markdown("""
+        <div style="background: #0f0f13; border: 1px dashed #27272a; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.78rem; color: #71717a; text-align: center; margin-top: 0.5rem;">
+            Live crypto contracts are actively logged for Brier calibration. Resolved outcome scores will populate automatically upon contract expiry.
+        </div>
+        """, unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------------------------
 # TAB 2: ORDER BOOK & SIGNAL FEED

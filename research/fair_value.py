@@ -127,3 +127,46 @@ def calculate_binary_fair_probability(
         return 1.0 - prob_up
     else:
         raise ValueError(f"Unknown outcome_side: {outcome_side}. Must be 'YES' or 'NO'")
+
+
+def compute_brier_score(predictions: List[float], outcomes: List[int]) -> float:
+    """
+    Computes mean Brier Score: 1/N * sum((p_i - y_i)^2).
+    Lower is better (0.0 = perfect accuracy, 0.25 = uninformative 50/50 prior).
+    """
+    if len(predictions) != len(outcomes):
+        raise ValueError(f"Length mismatch: {len(predictions)} predictions vs {len(outcomes)} outcomes")
+    if not predictions:
+        return 0.0
+    return sum((p - y) ** 2 for p, y in zip(predictions, outcomes)) / len(predictions)
+
+
+def evaluate_brier_skill(model_probs: List[float], market_mids: List[float], outcomes: List[int]) -> dict:
+    """
+    Evaluates whether the Black-Scholes binary model outperforms the market mid-price.
+    Returns skill delta: Brier_market - Brier_model (>0 means model has edge).
+    """
+    if not model_probs or len(model_probs) != len(outcomes) or len(market_mids) != len(outcomes):
+        return {
+            "n": 0,
+            "brier_model": 0.0,
+            "brier_market": 0.0,
+            "skill_delta": 0.0,
+            "has_edge": False,
+            "model_beats_market": False
+        }
+
+    n = len(outcomes)
+    b_model = compute_brier_score(model_probs, outcomes)
+    b_mkt = compute_brier_score(market_mids, outcomes)
+    delta = b_mkt - b_model
+
+    return {
+        "n": n,
+        "brier_model": round(b_model, 4),
+        "brier_market": round(b_mkt, 4),
+        "skill_delta": round(delta, 4),
+        "has_edge": delta > 0.0,
+        "model_beats_market": delta > 0.0
+    }
+

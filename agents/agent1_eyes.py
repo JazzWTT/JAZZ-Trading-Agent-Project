@@ -64,7 +64,8 @@ class Agent1Eyes(BaseAgent):
         secs_remaining: int,
         token_id: str,
         market_id: str,
-        ts: float
+        ts: float,
+        ofi: float = 0.0
     ):
         strike = 0.0
         if self.live_pm_mgr and asset in self.live_pm_mgr.target_markets:
@@ -78,7 +79,8 @@ class Agent1Eyes(BaseAgent):
             token_id=token_id,
             market_id=market_id,
             strike_price=strike,
-            ts=ts
+            ts=ts,
+            ofi=ofi
         )
         if packet and self.is_running:
             try:
@@ -138,7 +140,8 @@ class Agent1Eyes(BaseAgent):
         token_id: str,
         market_id: str = "",
         strike_price: float = 0.0,
-        ts: Optional[float] = None
+        ts: Optional[float] = None,
+        ofi: float = 0.0
     ) -> Optional[EventPacket]:
         """
         Ingests Polymarket CLOB WebSocket L2 order book update.
@@ -172,6 +175,12 @@ class Agent1Eyes(BaseAgent):
         spot_price = self.current_spot.get(asset, 0.0)
         spot_velocity = self.calculate_spot_velocity_60s(asset)
 
+        # Cross-Venue Momentum Consensus Check
+        cross_confirmed = True
+        if self.live_spot_mgr and hasattr(self.live_spot_mgr, "check_cross_venue_consensus"):
+            direction = "UP" if spot_velocity >= 0 else "DOWN"
+            cross_confirmed = self.live_spot_mgr.check_cross_venue_consensus(asset, direction)
+
         # INSTRUCTION 4: Unified, timestamped JSON event packet
         packet = EventPacket(
             timestamp=now,
@@ -185,7 +194,9 @@ class Agent1Eyes(BaseAgent):
             top3_depth_usdc=top3_depth_usdc,
             token_id=token_id,
             market_id=market_id,
-            strike_price=strike_price
+            strike_price=strike_price,
+            ofi=ofi,
+            cross_venue_confirmed=cross_confirmed
         )
 
         self.clob_books[asset] = {
@@ -194,7 +205,9 @@ class Agent1Eyes(BaseAgent):
             "mid_price": mid_price,
             "spread_bps": spread_bps,
             "top3_depth_usdc": top3_depth_usdc,
-            "secs_remaining": secs_remaining
+            "secs_remaining": secs_remaining,
+            "ofi": ofi,
+            "cross_venue_confirmed": cross_confirmed
         }
 
         return packet

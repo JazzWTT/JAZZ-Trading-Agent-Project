@@ -31,6 +31,8 @@ class EventPacket:
     market_id: str = ""
     strike_price: float = 0.0
     realized_vol_60s: Optional[float] = None
+    ofi: float = 0.0
+    cross_venue_confirmed: bool = True
 
     def to_packet_list(self) -> list:
         """Returns the strictly required JSON event packet format."""

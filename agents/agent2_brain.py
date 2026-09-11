@@ -99,6 +99,30 @@ class Agent2Brain(BaseAgent):
         else:
             return None
 
+        # QUANTITATIVE ENHANCEMENT: Cross-Venue Momentum Consensus Gate
+        enhancements = getattr(self.config, "enhancements", None)
+        if enhancements and enhancements.cross_venue_consensus_enabled:
+            if not getattr(packet, "cross_venue_confirmed", True):
+                self.logger.debug(
+                    f"[{packet.asset_id}] Signal suppressed: Cross-venue momentum consensus not confirmed between venues."
+                )
+                return None
+
+        # QUANTITATIVE ENHANCEMENT: Order Flow Imbalance (OFI) Adverse Flow Filter
+        if enhancements and enhancements.ofi_filter_enabled:
+            ofi_thresh = enhancements.ofi_threshold
+            pkt_ofi = getattr(packet, "ofi", 0.0)
+            if outcome_side == "YES" and pkt_ofi < -ofi_thresh:
+                self.logger.debug(
+                    f"[{packet.asset_id}] Signal suppressed: Adverse OFI {pkt_ofi:.2f} < -{ofi_thresh:.2f} (heavy ask wall on YES)"
+                )
+                return None
+            elif outcome_side == "NO" and pkt_ofi > ofi_thresh:
+                self.logger.debug(
+                    f"[{packet.asset_id}] Signal suppressed: Adverse OFI {pkt_ofi:.2f} > +{ofi_thresh:.2f} (heavy bid support on YES)"
+                )
+                return None
+
         # INSTRUCTION 3: Market's remaining time outside the danger zone (between 2 min and 10 min left)
         if not (self.config.market.danger_zone_min_secs <= packet.secs_remaining <= self.config.market.danger_zone_max_secs):
             self.logger.debug(

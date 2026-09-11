@@ -114,7 +114,16 @@ class LedgerDB:
                 "ALTER TABLE bot_control ADD COLUMN eth_spot_price REAL DEFAULT 2460.0",
                 "ALTER TABLE bot_control ADD COLUMN eth_velocity_60s REAL DEFAULT 0.0",
                 "ALTER TABLE bot_control ADD COLUMN sol_spot_price REAL DEFAULT 100.0",
-                "ALTER TABLE bot_control ADD COLUMN sol_velocity_60s REAL DEFAULT 0.0"
+                "ALTER TABLE bot_control ADD COLUMN sol_velocity_60s REAL DEFAULT 0.0",
+                "ALTER TABLE bot_control ADD COLUMN telegram_bot_token TEXT DEFAULT ''",
+                "ALTER TABLE bot_control ADD COLUMN telegram_chat_id TEXT DEFAULT ''",
+                "ALTER TABLE bot_control ADD COLUMN telegram_enabled INTEGER DEFAULT 0",
+                "ALTER TABLE bot_control ADD COLUMN ofi_btc REAL DEFAULT 0.0",
+                "ALTER TABLE bot_control ADD COLUMN ofi_eth REAL DEFAULT 0.0",
+                "ALTER TABLE bot_control ADD COLUMN ofi_sol REAL DEFAULT 0.0",
+                "ALTER TABLE bot_control ADD COLUMN consensus_btc INTEGER DEFAULT 1",
+                "ALTER TABLE bot_control ADD COLUMN consensus_eth INTEGER DEFAULT 1",
+                "ALTER TABLE bot_control ADD COLUMN consensus_sol INTEGER DEFAULT 1"
             ]:
                 try:
                     cur.execute(col_sql)
@@ -430,6 +439,15 @@ class LedgerDB:
                 "eth_velocity_60s": 0.0,
                 "sol_spot_price": 100.0,
                 "sol_velocity_60s": 0.0,
+                "telegram_bot_token": "",
+                "telegram_chat_id": "",
+                "telegram_enabled": 0,
+                "ofi_btc": 0.0,
+                "ofi_eth": 0.0,
+                "ofi_sol": 0.0,
+                "consensus_btc": 1,
+                "consensus_eth": 1,
+                "consensus_sol": 1,
                 "updated_at": 0.0
             }
 

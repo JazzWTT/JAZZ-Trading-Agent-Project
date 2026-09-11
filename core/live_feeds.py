@@ -62,6 +62,8 @@ def extract_strike_from_question(q: str) -> float:
     return 0.0
 
 
+from collections import deque
+
 class LiveSpotFeedManager:
     """
     Connects to Coinbase and OKX WebSockets to stream real-time spot crypto prices
@@ -79,11 +81,54 @@ class LiveSpotFeedManager:
             "ETH": time.time(),
             "SOL": time.time()
         }
+        self.coinbase_history: Dict[str, deque] = {
+            a: deque(maxlen=300) for a in ["BTC", "ETH", "SOL"]
+        }
+        self.okx_history: Dict[str, deque] = {
+            a: deque(maxlen=300) for a in ["BTC", "ETH", "SOL"]
+        }
         self.status: str = "INITIALIZING"
         self.running: bool = False
         self._tasks: List[asyncio.Task] = []
         self.coinbase_ws_url = "wss://ws-feed.exchange.coinbase.com"
         self.okx_ws_url = "wss://ws.okx.com:8443/ws/v5/public"
+
+    def _calc_velocity(self, history: deque, window_sec: float = 60.0) -> float:
+        """Calculates percentage change velocity over window_sec."""
+        if not history or len(history) < 2:
+            return 0.0
+        cur_ts, cur_p = history[-1]
+        target_ts = cur_ts - window_sec
+        base_p = history[0][1]
+        for t, p in history:
+            if t <= target_ts:
+                base_p = p
+            else:
+                break
+        if base_p <= 0:
+            return 0.0
+        return ((cur_p - base_p) / base_p) * 100.0
+
+    def check_cross_venue_consensus(self, asset: str, direction: str) -> bool:
+        """
+        QUANTITATIVE ENHANCEMENT: Validates directional momentum agreement
+        between Coinbase Pro and OKX feeds to filter out single-exchange flash spikes.
+        direction: 'UP' (for YES signals) or 'DOWN' (for NO signals)
+        """
+        cb_vel = self._calc_velocity(self.coinbase_history.get(asset, deque()))
+        okx_vel = self._calc_velocity(self.okx_history.get(asset, deque()))
+        
+        # If one venue hasn't accumulated enough history yet, pass through safely
+        if len(self.okx_history.get(asset, [])) < 2 or len(self.coinbase_history.get(asset, [])) < 2:
+            return True
+
+        if direction == "UP":
+            # Both venues must support upward momentum (OKX must not be strongly negative)
+            return cb_vel > 0.05 and okx_vel >= -0.05
+        elif direction == "DOWN":
+            # Both venues must support downward momentum (OKX must not be strongly positive)
+            return cb_vel < -0.05 and okx_vel <= 0.05
+        return True
 
     async def start(self):
         """Starts live WebSocket consumer loops."""
@@ -132,6 +177,7 @@ class LiveSpotFeedManager:
                                 now = time.time()
                                 self.prices[asset] = price
                                 self.last_update_ts[asset] = now
+                                self.coinbase_history[asset].append((now, price))
                                 if self.on_tick:
                                     try:
                                         self.on_tick(asset, price, now)
@@ -176,6 +222,7 @@ class LiveSpotFeedManager:
                                     asset = mapping[inst]
                                     price = float(last)
                                     now = time.time()
+                                    self.okx_history[asset].append((now, price))
                                     # Update if Coinbase hasn't updated for > 2s
                                     if now - self.last_update_ts.get(asset, 0) > 2.0:
                                         self.prices[asset] = price
@@ -196,7 +243,7 @@ class LivePolymarketFeedManager:
     """
     def __init__(
         self,
-        on_book_update: Optional[Callable[[str, list, list, int, str, str, float], None]] = None
+        on_book_update: Optional[Callable] = None
     ):
         self.on_book_update = on_book_update
         self.target_markets: Dict[str, dict] = dict(DEFAULT_TARGET_MARKETS)
@@ -210,6 +257,8 @@ class LivePolymarketFeedManager:
         self.last_ping_ts: float = time.time()
         self.running: bool = False
         self._task: Optional[asyncio.Task] = None
+        self._roll_task: Optional[asyncio.Task] = None
+        self._ws = None
         self.clob_ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
     def discover_markets(self):
@@ -263,6 +312,7 @@ class LivePolymarketFeedManager:
         self.discover_markets()
         self.running = True
         self._task = asyncio.create_task(self._clob_loop())
+        self._roll_task = asyncio.create_task(self._auto_roll_loop())
         logger.info("LivePolymarketFeedManager started.")
 
     async def stop(self):
@@ -270,8 +320,28 @@ class LivePolymarketFeedManager:
         self.running = False
         if self._task:
             self._task.cancel()
+        if self._roll_task:
+            self._roll_task.cancel()
         self.status = "STOPPED"
         logger.info("LivePolymarketFeedManager stopped.")
+
+    async def _auto_roll_loop(self):
+        """Periodically scans Gamma API for newly listed/rolled crypto contracts."""
+        while self.running:
+            try:
+                await asyncio.sleep(60.0)
+                old_tokens = set(self.token_to_asset.keys())
+                await asyncio.to_thread(self.discover_markets)
+                new_tokens = set(self.token_to_asset.keys())
+                added = list(new_tokens - old_tokens)
+                if added and self._ws and not getattr(self._ws, "closed", True):
+                    sub_msg = {"type": "market", "assets_ids": added}
+                    await self._ws.send(json.dumps(sub_msg))
+                    logger.info(f"Auto-rolled Polymarket subscriptions. Subscribed to {len(added)} new tokens: {added}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error in auto-rolling contract discovery: {e}")
 
     async def _clob_loop(self):
         """Maintains persistent WebSocket connection to Polymarket CLOB."""
@@ -288,6 +358,7 @@ class LivePolymarketFeedManager:
                     ping_interval=20,
                     ping_timeout=10
                 ) as ws:
+                    self._ws = ws
                     self.latency_ms = round((time.time() - t0) * 1000.0, 1)
                     self.status = "ONLINE"
                     logger.info(f"Connected to Polymarket CLOB WebSocket (Latency: {self.latency_ms:.1f}ms). Subscribing to {len(token_ids)} tokens...")
@@ -351,6 +422,12 @@ class LivePolymarketFeedManager:
             spread_bps = (spread / mid_price * 10000.0) if mid_price > 0 else 0.0
             top3_depth = sum(p * s for p, s in asks[:3])
 
+            # Order Flow Imbalance (OFI) on top 5 levels: (bid_vol - ask_vol) / (bid_vol + ask_vol)
+            top5_bid_vol = sum(s for p, s in bids[:5])
+            top5_ask_vol = sum(s for p, s in asks[:5])
+            tot_5_vol = top5_bid_vol + top5_ask_vol
+            ofi = (top5_bid_vol - top5_ask_vol) / tot_5_vol if tot_5_vol > 0 else 0.0
+
             self.books[token_id] = {
                 "bids": bids,
                 "asks": asks,
@@ -359,6 +436,7 @@ class LivePolymarketFeedManager:
                 "mid_price": mid_price,
                 "spread_bps": spread_bps,
                 "top3_depth": top3_depth,
+                "ofi": round(ofi, 4),
                 "timestamp": now
             }
 
@@ -375,7 +453,8 @@ class LivePolymarketFeedManager:
                     secs_remaining,
                     token_id,
                     market_id,
-                    now
+                    now,
+                    round(ofi, 4)
                 )
 
         # 2. Incremental Price Change Update
@@ -408,6 +487,11 @@ class LivePolymarketFeedManager:
 
                 top3_depth = sum(p * s for p, s in asks[:3])
 
+                top5_bid_vol = sum(s for p, s in bids[:5])
+                top5_ask_vol = sum(s for p, s in asks[:5])
+                tot_5_vol = top5_bid_vol + top5_ask_vol
+                ofi = (top5_bid_vol - top5_ask_vol) / tot_5_vol if tot_5_vol > 0 else 0.0
+
                 self.books[token_id] = {
                     "bids": bids,
                     "asks": asks,
@@ -416,6 +500,7 @@ class LivePolymarketFeedManager:
                     "mid_price": mid_price,
                     "spread_bps": spread_bps,
                     "top3_depth": top3_depth,
+                    "ofi": round(ofi, 4),
                     "timestamp": now
                 }
 
@@ -432,5 +517,6 @@ class LivePolymarketFeedManager:
                         secs_remaining,
                         token_id,
                         market_id,
-                        now
+                        now,
+                        round(ofi, 4)
                     )

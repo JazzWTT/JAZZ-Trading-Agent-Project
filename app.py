@@ -383,6 +383,38 @@ with st.sidebar:
 
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
 
+    # Telegram Integration & Alert Controls
+    with st.expander("✈️ Telegram Alerts & Remote Control", expanded=False):
+        st.markdown("<div style='font-size: 0.75rem; color: #a1a1aa; margin-bottom: 0.6rem;'>Real-time mobile push notifications for trades, signals, and remote commands (<code>/status</code>, <code>/balance</code>, <code>/kill</code>, <code>/resume</code>).</div>", unsafe_allow_html=True)
+        
+        cur_token = bot_ctrl.get("telegram_bot_token", "")
+        cur_chat = bot_ctrl.get("telegram_chat_id", "")
+        cur_enabled = bool(bot_ctrl.get("telegram_enabled", 0))
+
+        tg_token = st.text_input("Telegram Bot Token", value=cur_token, type="password", help="From @BotFather")
+        tg_chat = st.text_input("Authorized Chat ID", value=cur_chat, help="Your personal or group Telegram Chat ID")
+        tg_enable = st.checkbox("Enable Push Alerts", value=cur_enabled)
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            if st.button("🔔 Test Ping", use_container_width=True):
+                from core.telegram_bot import TelegramNotifier
+                notifier = TelegramNotifier(bot_token=tg_token, chat_id=tg_chat, enabled=True)
+                success, msg = notifier.send_test_message()
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+        with col_t2:
+            if st.button("💾 Save TG", use_container_width=True):
+                db.update_bot_control(
+                    telegram_bot_token=tg_token.strip(),
+                    telegram_chat_id=tg_chat.strip(),
+                    telegram_enabled=1 if tg_enable else 0
+                )
+                st.toast("Telegram configuration saved!", icon="✅")
+                st.rerun()
+
     # Auto Refresh Setting
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
     auto_refresh = st.checkbox("Live Auto-Refresh", value=True)
@@ -616,35 +648,65 @@ def render_tab2():
     eth_vel = live_ctrl.get("eth_velocity_60s", 0.0)
     sol_spot = live_ctrl.get("sol_spot_price", 100.0)
     sol_vel = live_ctrl.get("sol_velocity_60s", 0.0)
+    ofi_btc = live_ctrl.get("ofi_btc", 0.0)
+    ofi_eth = live_ctrl.get("ofi_eth", 0.0)
+    ofi_sol = live_ctrl.get("ofi_sol", 0.0)
+    cons_btc = live_ctrl.get("consensus_btc", 1)
+    cons_eth = live_ctrl.get("consensus_eth", 1)
+    cons_sol = live_ctrl.get("consensus_sol", 1)
 
     h_col1, h_col2, h_col3 = st.columns(3)
     with h_col1:
         vel_type = "up" if btc_vel > 0.02 else ("down" if btc_vel < -0.02 else "warn")
+        ofi_b = "badge-green" if ofi_btc >= 0.15 else ("badge-red" if ofi_btc <= -0.15 else "badge-blue")
+        ofi_lbl = "Bid Wall" if ofi_btc >= 0.15 else ("Ask Wall" if ofi_btc <= -0.15 else "Balanced")
+        cons_b = "badge-green" if cons_btc == 1 else "badge-amber"
+        cons_lbl = "CB ↔ OKX: CONSENSUS ✓" if cons_btc == 1 else "CB ↔ OKX: FILTERED"
         st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Live BTC/USD Spot (Coinbase/OKX)</div>
             <div class="metric-value">${btc_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type}">60s Velocity: {btc_vel:+.3f}%/min</div>
+            <div style="margin-top: 8px; display: flex; gap: 6px; font-size: 0.7rem; flex-wrap: wrap;">
+                <span class="badge {ofi_b}">OFI: {ofi_btc:+.2f} ({ofi_lbl})</span>
+                <span class="badge {cons_b}">{cons_lbl}</span>
+            </div>
         </div>
         """)
 
     with h_col2:
         vel_type_eth = "up" if eth_vel > 0.02 else ("down" if eth_vel < -0.02 else "warn")
+        ofi_b_eth = "badge-green" if ofi_eth >= 0.15 else ("badge-red" if ofi_eth <= -0.15 else "badge-blue")
+        ofi_lbl_eth = "Bid Wall" if ofi_eth >= 0.15 else ("Ask Wall" if ofi_eth <= -0.15 else "Balanced")
+        cons_b_eth = "badge-green" if cons_eth == 1 else "badge-amber"
+        cons_lbl_eth = "CB ↔ OKX: CONSENSUS ✓" if cons_eth == 1 else "CB ↔ OKX: FILTERED"
         st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Live ETH/USD Spot (Coinbase/OKX)</div>
             <div class="metric-value">${eth_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type_eth}">60s Velocity: {eth_vel:+.3f}%/min</div>
+            <div style="margin-top: 8px; display: flex; gap: 6px; font-size: 0.7rem; flex-wrap: wrap;">
+                <span class="badge {ofi_b_eth}">OFI: {ofi_eth:+.2f} ({ofi_lbl_eth})</span>
+                <span class="badge {cons_b_eth}">{cons_lbl_eth}</span>
+            </div>
         </div>
         """)
 
     with h_col3:
         vel_type_sol = "up" if sol_vel > 0.02 else ("down" if sol_vel < -0.02 else "warn")
+        ofi_b_sol = "badge-green" if ofi_sol >= 0.15 else ("badge-red" if ofi_sol <= -0.15 else "badge-blue")
+        ofi_lbl_sol = "Bid Wall" if ofi_sol >= 0.15 else ("Ask Wall" if ofi_sol <= -0.15 else "Balanced")
+        cons_b_sol = "badge-green" if cons_sol == 1 else "badge-amber"
+        cons_lbl_sol = "CB ↔ OKX: CONSENSUS ✓" if cons_sol == 1 else "CB ↔ OKX: FILTERED"
         st.html(f"""
         <div class="metric-card">
             <div class="metric-label">Live SOL/USD Spot (Coinbase/OKX)</div>
             <div class="metric-value">${sol_spot:,.2f}</div>
             <div class="metric-delta delta-{vel_type_sol}">60s Velocity: {sol_vel:+.3f}%/min</div>
+            <div style="margin-top: 8px; display: flex; gap: 6px; font-size: 0.7rem; flex-wrap: wrap;">
+                <span class="badge {ofi_b_sol}">OFI: {ofi_sol:+.2f} ({ofi_lbl_sol})</span>
+                <span class="badge {cons_b_sol}">{cons_lbl_sol}</span>
+            </div>
         </div>
         """)
 

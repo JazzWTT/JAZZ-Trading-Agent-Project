@@ -45,12 +45,37 @@ class RiskConfig:
 
 
 @dataclass
+class TelegramConfig:
+    enabled: bool = False
+    bot_token: str = ""
+    chat_id: str = ""
+    notify_signals: bool = True
+    notify_trades: bool = True
+    notify_risks: bool = True
+    enable_commands: bool = True
+
+
+@dataclass
+class StrategyEnhancementConfig:
+    cross_venue_consensus_enabled: bool = True  # Require directional agreement between Coinbase & OKX
+    ofi_filter_enabled: bool = True             # Filter out trades with adverse Polymarket order flow imbalance
+    ofi_threshold: float = 0.40                 # Suppress BUY YES if OFI < -0.40, BUY NO if OFI > +0.40
+    take_profit_bps: float = 300.0              # Dynamic Take-Profit ceiling (+3.0% on contract price)
+    stop_loss_bps: float = 200.0                # Dynamic Stop-Loss floor (-2.0% on contract price)
+    auto_rolling_enabled: bool = True           # Auto-discover newly listed contracts periodically
+    discovery_interval_sec: float = 60.0        # Polling frequency for rolling contracts
+
+
+@dataclass
 class SystemConfig:
     market: MarketConfig = field(default_factory=MarketConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    enhancements: StrategyEnhancementConfig = field(default_factory=StrategyEnhancementConfig)
     db_path: str = "portfolio_ledger.db"
     log_level: str = "INFO"
 
 
 DEFAULT_CONFIG = SystemConfig()
+

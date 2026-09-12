@@ -77,6 +77,12 @@ class Agent4Shield(BaseAgent):
         INSTRUCTION 1: Enforce hard-coded boundaries before any order leaves Agent 3.
         """
         # Guard 0: Kill Switch or Circuit Breaker Active
+        if getattr(self.config, "passive_tournament_mode", False):
+            self.logger.info(
+                f"[PASSIVE TOURNAMENT MODE] Order execution suppressed by Shield for {order.signal_id}. Zero trading active."
+            )
+            return
+
         if self.kill_switch_active:
             self.logger.error(f"[ORDER BLOCKED] Kill switch active. Order {order.signal_id} rejected.")
             return

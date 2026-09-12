@@ -56,6 +56,12 @@ class Agent3Hands(BaseAgent):
         """
         Executes limit order via py-clob-client protocol rules.
         """
+        if getattr(self.config, "passive_tournament_mode", False):
+            self.logger.info(
+                f"[PASSIVE TOURNAMENT MODE] Order execution suppressed for {order.signal_id}. Zero trading active."
+            )
+            return None
+
         start_ts = time.time()
         client_order_id = f"CLOB-{uuid.uuid4().hex[:12].upper()}"
 

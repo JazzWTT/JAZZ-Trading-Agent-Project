@@ -36,6 +36,8 @@ class BotService:
         self.config = DEFAULT_CONFIG
         if db_path:
             self.config.db_path = db_path
+        # Enforce 100% passive Brier tournament mode: no trade execution or signing
+        self.config.passive_tournament_mode = True
         
         self.db = LedgerDB(self.config.db_path)
         self.bus = MessageBus()
@@ -105,11 +107,11 @@ class BotService:
         # Wait briefly for initial live packets to establish baseline
         await asyncio.sleep(1.0)
 
-        # Seed baseline price history (65s) from live prices
-        base_ts = time.time() - 65.0
+        # Seed baseline price history (365s) from live prices to establish pre-burst baseline window
+        base_ts = time.time() - 365.0
         for asset in ["BTC", "ETH", "SOL"]:
             live_p = self.live_spot.prices.get(asset, 77100.0 if asset == "BTC" else (2460.0 if asset == "ETH" else 100.0))
-            for step in range(65):
+            for step in range(365):
                 self.eyes.update_spot_price(asset, live_p, ts=base_ts + step)
 
         # Reconcile existing open positions from SQLite into memory
@@ -302,26 +304,33 @@ class BotService:
                             if packet:
                                 await self.eyes.emit_packet(packet)
 
-                            # Record Brier Calibration Prediction for Model vs Market Tournament
-                            strike = mkt.get("strike_price", 0.0)
-                            mid = book.get("mid_price", 0.0)
-                            if strike > 0 and mid > 0 and spot > 0:
-                                fair_prob = self.brain.calculate_theoretical_probability(
-                                    spot=spot,
-                                    strike=strike,
-                                    secs_remaining=secs_rem,
-                                    annualized_vol=0.60,
-                                    outcome_side="YES"
-                                )
-                                self.db.record_brier_prediction(
-                                    asset_id=asset,
-                                    market_id=mkt.get("market_id", ""),
-                                    token_id=token_id,
-                                    strike_price=strike,
-                                    expiry_ts=expiry_ts,
-                                    model_fair_prob=round(fair_prob, 4),
-                                    market_mid_price=round(mid, 4)
-                                )
+                            # Check danger zone eligibility per tick (120s <= secs_rem <= 600s)
+                            is_eligible = (
+                                self.config.market.danger_zone_min_secs <= secs_rem <= self.config.market.danger_zone_max_secs
+                            )
+
+                            # Record Brier Calibration Prediction for Model vs Market Tournament strictly when eligible
+                            if is_eligible:
+                                strike = mkt.get("strike_price", 0.0)
+                                mid = book.get("mid_price", 0.0)
+                                if strike > 0 and mid > 0 and spot > 0:
+                                    baseline_vol = self.eyes.calculate_baseline_volatility(asset)
+                                    fair_prob = self.brain.calculate_theoretical_probability(
+                                        spot=spot,
+                                        strike=strike,
+                                        secs_remaining=secs_rem,
+                                        annualized_vol=baseline_vol,
+                                        outcome_side="YES"
+                                    )
+                                    self.db.record_brier_prediction(
+                                        asset_id=asset,
+                                        market_id=mkt.get("market_id", ""),
+                                        token_id=token_id,
+                                        strike_price=strike,
+                                        expiry_ts=expiry_ts,
+                                        model_fair_prob=round(fair_prob, 4),
+                                        market_mid_price=round(mid, 4)
+                                    )
                     elif not self.live_pm.running or not book:
                         # Fallback to simulated exchange tick during feed handshake
                         spot_sim, contract = self.exchange.generate_tick(asset=asset)

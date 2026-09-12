@@ -25,6 +25,71 @@ def standard_normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def calculate_baseline_volatility(
+    price_history: List[Tuple[float, float]],
+    now_ts: Optional[float] = None,
+    burst_window_sec: float = 60.0,
+    baseline_window_sec: float = 300.0,
+    interval_seconds: float = 1.0,
+    annualization_factor: float = 31536000.0,
+    min_observations: int = 15,
+    default_fallback: float = 0.60
+) -> float:
+    """
+    Computes annualized baseline realized volatility strictly excluding the trailing momentum burst.
+    
+    Prevents circular lookahead contamination: option pricing models must evaluate the exogenous prior
+    volatility, NOT the variance of the shock itself that triggered the evaluation.
+    
+    Args:
+        price_history: Chronological list of (timestamp, price) tuples.
+        now_ts: Current evaluation timestamp. If None, uses timestamp of last observation.
+        burst_window_sec: Duration of trailing momentum burst to exclude (e.g. 60s).
+        baseline_window_sec: Lookback duration preceding the burst (e.g. 300s = 5m).
+        interval_seconds: Estimated sampling frequency between observations.
+        annualization_factor: Total seconds in a year (365 * 24 * 3600).
+        min_observations: Minimum valid price points required to estimate volatility.
+        default_fallback: Default volatility prior if history is insufficient.
+        
+    Returns:
+        Annualized volatility sigma as a float > 0.
+    """
+    if not price_history:
+        return default_fallback
+
+    now = now_ts if now_ts is not None else price_history[-1][0]
+    cutoff_end = now - burst_window_sec
+    cutoff_start = cutoff_end - baseline_window_sec
+
+    # Extract price points in [cutoff_start, cutoff_end]
+    pts = [p for t, p in price_history if cutoff_start <= t <= cutoff_end and p > 0]
+
+    # If insufficient observations in the isolated baseline window, fallback
+    if len(pts) < min_observations:
+        return default_fallback
+
+    # Compute log returns
+    log_returns = []
+    for i in range(1, len(pts)):
+        p_prev = pts[i - 1]
+        p_curr = pts[i]
+        if p_prev > 0 and p_curr > 0:
+            log_returns.append(math.log(p_curr / p_prev))
+
+    n = len(log_returns)
+    if n < (min_observations - 1):
+        return default_fallback
+
+    mean_r = sum(log_returns) / n
+    variance = sum((r - mean_r) ** 2 for r in log_returns) / (n - 1)
+    if variance <= 1e-16:
+        return default_fallback
+
+    std_per_interval = math.sqrt(variance)
+    annualized_vol = std_per_interval * math.sqrt(annualization_factor / interval_seconds)
+    return max(0.01, annualized_vol)
+
+
 def calculate_realized_volatility_60s(
     prices: List[float],
     interval_seconds: float = 1.0,

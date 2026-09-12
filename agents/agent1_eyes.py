@@ -22,9 +22,9 @@ class Agent1Eyes(BaseAgent):
     def __init__(self, bus: MessageBus, config: SystemConfig = DEFAULT_CONFIG):
         super().__init__(agent_id="agent1_eyes", role="High-Frequency Data Ingestion & Feed Harmonizer", bus=bus, config=config)
         
-        # Spot Price History: asset -> deque of (timestamp, price)
+        # Spot Price History: asset -> deque of (timestamp, price) (stores up to 15 mins of ticks)
         self.spot_history: Dict[str, deque] = {
-            asset: deque(maxlen=300) for asset in self.config.market.assets
+            asset: deque(maxlen=900) for asset in self.config.market.assets
         }
         self.current_spot: Dict[str, float] = {}
         
@@ -99,11 +99,11 @@ class Agent1Eyes(BaseAgent):
         self.current_spot[asset] = price
         
         # Append to historical window
-        history = self.spot_history.setdefault(asset, deque(maxlen=300))
+        history = self.spot_history.setdefault(asset, deque(maxlen=900))
         history.append((now, price))
         
-        # Purge data older than 65s
-        while history and now - history[0][0] > 65.0:
+        # Purge data older than 600s (preserves 5-minute pre-burst baseline window)
+        while history and now - history[0][0] > 600.0:
             history.popleft()
 
     def calculate_spot_velocity_60s(self, asset: str) -> float:
@@ -130,6 +130,23 @@ class Agent1Eyes(BaseAgent):
             
         velocity_pct = ((current_p - base_price) / base_price) * 100.0
         return velocity_pct
+
+    def calculate_baseline_volatility(self, asset: str) -> float:
+        """
+        Compute pre-burst baseline annualized volatility strictly excluding the trailing momentum burst.
+        """
+        history = self.spot_history.get(asset)
+        if not history:
+            return 0.60
+        from research.fair_value import calculate_baseline_volatility
+        now = time.time()
+        return calculate_baseline_volatility(
+            price_history=list(history),
+            now_ts=now,
+            burst_window_sec=float(self.config.strategy.momentum_window_sec),
+            baseline_window_sec=300.0,
+            default_fallback=0.60
+        )
 
     def update_polymarket_clob(
         self,
@@ -174,6 +191,7 @@ class Agent1Eyes(BaseAgent):
 
         spot_price = self.current_spot.get(asset, 0.0)
         spot_velocity = self.calculate_spot_velocity_60s(asset)
+        baseline_vol = self.calculate_baseline_volatility(asset)
 
         # Cross-Venue Momentum Consensus Check
         cross_confirmed = True
@@ -181,7 +199,7 @@ class Agent1Eyes(BaseAgent):
             direction = "UP" if spot_velocity >= 0 else "DOWN"
             cross_confirmed = self.live_spot_mgr.check_cross_venue_consensus(asset, direction)
 
-        # INSTRUCTION 4: Unified, timestamped JSON event packet
+        # INSTRUCTION 4: Unified, timestamped JSON event packet with pre-burst baseline volatility
         packet = EventPacket(
             timestamp=now,
             asset_id=asset,
@@ -195,6 +213,7 @@ class Agent1Eyes(BaseAgent):
             token_id=token_id,
             market_id=market_id,
             strike_price=strike_price,
+            realized_vol_60s=baseline_vol,
             ofi=ofi,
             cross_venue_confirmed=cross_confirmed
         )

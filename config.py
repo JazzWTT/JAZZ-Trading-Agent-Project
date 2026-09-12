@@ -77,6 +77,7 @@ class SystemConfig:
     enhancements: StrategyEnhancementConfig = field(default_factory=StrategyEnhancementConfig)
     db_path: str = "portfolio_ledger.db"
     log_level: str = "INFO"
+    passive_tournament_mode: bool = False  # Enabled in BotService for 100% passive Brier tournament
 
 
 DEFAULT_CONFIG = SystemConfig()

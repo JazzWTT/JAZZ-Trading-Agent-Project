@@ -265,6 +265,17 @@ class LivePolymarketFeedManager:
         self._ws = None
         self.clob_ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
+    def is_market_eligible(self, expiry_ts: float, now_ts: Optional[float] = None) -> bool:
+        """
+        Evaluates whether a target contract is in the danger zone [danger_zone_min_secs, danger_zone_max_secs].
+        Evaluated per tick as time decays towards expiry.
+        """
+        now = now_ts if now_ts is not None else time.time()
+        secs_remaining = expiry_ts - now
+        min_secs = self.config.market.danger_zone_min_secs if hasattr(self, "config") and self.config else 120
+        max_secs = self.config.market.danger_zone_max_secs if hasattr(self, "config") and self.config else 600
+        return min_secs <= secs_remaining <= max_secs
+
     def discover_markets(self):
         """Fetches active crypto markets via Polymarket Gamma API, filtering strictly to short-duration danger zone."""
         patch_dns()
@@ -299,15 +310,14 @@ class LivePolymarketFeedManager:
                         # Compute time-to-expiry dynamically
                         time_to_expiry = expiry_ts - now
 
-                        # F-3: Filter discovery to short-duration markets only
-                        # Reject any market outside the configured danger zone
-                        min_secs = self.config.market.danger_zone_min_secs if hasattr(self, "config") and self.config else 120
-                        max_secs = self.config.market.danger_zone_max_secs if hasattr(self, "config") and self.config else 600
-                        if not (min_secs <= time_to_expiry <= max_secs):
+                        # Discovery filter: accept near-term hourly crypto markets (up to 2 hours)
+                        # Reject markets outside horizon or already in terminal drop zone (<= 30s)
+                        max_discovery_horizon = 7200.0  # 2 hours (covers current and next hourly cycle)
+                        if not (30.0 < time_to_expiry <= max_discovery_horizon):
                             continue
 
-                        # F-5: Fail-loud guard: assertion that raises if discovered market's time-to-expiry exceeds 1 hour
-                        assert time_to_expiry <= 3600.0, f"Discovered market {m.get('id')} time-to-expiry ({time_to_expiry}s) exceeds 1-hour safety ceiling!"
+                        # Fail-loud guard: assertion that raises if discovered market's time-to-expiry exceeds 2-hour horizon
+                        assert time_to_expiry <= 7200.0, f"Discovered market {m.get('id')} time-to-expiry ({time_to_expiry}s) exceeds 2-hour safety ceiling!"
 
                         vol = float(m.get("volume24hr") or 0)
                         for asset in ["BTC", "ETH", "SOL"]:
@@ -316,16 +326,18 @@ class LivePolymarketFeedManager:
                                 strike = extract_strike_from_question(q)
                                 # F-4: Never infer strike; must be explicit positive strike
                                 if strike > 0:
-                                    discovered[asset] = {
-                                        "asset": asset,
-                                        "market_id": m.get("id"),
-                                        "question": q,
-                                        "strike_price": strike,
-                                        "token_id_yes": tokens[0],
-                                        "token_id_no": tokens[1],
-                                        "expiry_ts": expiry_ts
-                                    }
-                                    logger.info(f"Discovered qualifying short-duration target for {asset} (expires in {time_to_expiry:.1f}s): {q}")
+                                    # Select the closest-maturing active contract for each asset
+                                    if asset not in discovered or expiry_ts < discovered[asset]["expiry_ts"]:
+                                        discovered[asset] = {
+                                            "asset": asset,
+                                            "market_id": m.get("id"),
+                                            "question": q,
+                                            "strike_price": strike,
+                                            "token_id_yes": tokens[0],
+                                            "token_id_no": tokens[1],
+                                            "expiry_ts": expiry_ts
+                                        }
+                                        logger.info(f"Discovered hourly target for {asset} (expires in {time_to_expiry:.1f}s): {q}")
                                     break
         except AssertionError:
             raise

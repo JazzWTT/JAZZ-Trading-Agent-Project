@@ -283,43 +283,45 @@ class BotService:
                     mkt = self.live_pm.target_markets.get(asset, {})
                     token_id = mkt.get("token_id_yes", "")
                     book = self.live_pm.books.get(token_id)
+                    expiry_ts = mkt.get("expiry_ts")
 
-                    if book and book.get("bids") and book.get("asks"):
-                        packet = self.eyes.update_polymarket_clob(
-                            asset=asset,
-                            bids=book["bids"],
-                            asks=book["asks"],
-                            secs_remaining=mkt.get("evaluation_secs_remaining", 300),
-                            token_id=token_id,
-                            market_id=mkt.get("market_id", ""),
-                            strike_price=mkt.get("strike_price", 0.0),
-                            ts=now_ts,
-                            ofi=book.get("ofi", 0.0)
-                        )
-                        if packet:
-                            await self.eyes.emit_packet(packet)
-
-                        # Record Brier Calibration Prediction for Model vs Market Tournament
-                        strike = mkt.get("strike_price", 0.0)
-                        mid = book.get("mid_price", 0.0)
-                        secs_rem = float(mkt.get("evaluation_secs_remaining", 300))
-                        if strike > 0 and mid > 0 and spot > 0:
-                            fair_prob = self.brain.calculate_theoretical_probability(
-                                spot=spot,
-                                strike=strike,
+                    if book and book.get("bids") and book.get("asks") and expiry_ts:
+                        secs_rem = expiry_ts - now_ts
+                        if secs_rem > 0:
+                            packet = self.eyes.update_polymarket_clob(
+                                asset=asset,
+                                bids=book["bids"],
+                                asks=book["asks"],
                                 secs_remaining=secs_rem,
-                                annualized_vol=0.60,
-                                outcome_side="YES"
-                            )
-                            self.db.record_brier_prediction(
-                                asset_id=asset,
-                                market_id=mkt.get("market_id", ""),
                                 token_id=token_id,
-                                strike_price=strike,
-                                expiry_ts=now_ts + secs_rem,
-                                model_fair_prob=round(fair_prob, 4),
-                                market_mid_price=round(mid, 4)
+                                market_id=mkt.get("market_id", ""),
+                                strike_price=mkt.get("strike_price", 0.0),
+                                ts=now_ts,
+                                ofi=book.get("ofi", 0.0)
                             )
+                            if packet:
+                                await self.eyes.emit_packet(packet)
+
+                            # Record Brier Calibration Prediction for Model vs Market Tournament
+                            strike = mkt.get("strike_price", 0.0)
+                            mid = book.get("mid_price", 0.0)
+                            if strike > 0 and mid > 0 and spot > 0:
+                                fair_prob = self.brain.calculate_theoretical_probability(
+                                    spot=spot,
+                                    strike=strike,
+                                    secs_remaining=secs_rem,
+                                    annualized_vol=0.60,
+                                    outcome_side="YES"
+                                )
+                                self.db.record_brier_prediction(
+                                    asset_id=asset,
+                                    market_id=mkt.get("market_id", ""),
+                                    token_id=token_id,
+                                    strike_price=strike,
+                                    expiry_ts=expiry_ts,
+                                    model_fair_prob=round(fair_prob, 4),
+                                    market_mid_price=round(mid, 4)
+                                )
                     elif not self.live_pm.running or not book:
                         # Fallback to simulated exchange tick during feed handshake
                         spot_sim, contract = self.exchange.generate_tick(asset=asset)
@@ -344,8 +346,10 @@ class BotService:
                 }
                 self.db.resolve_expired_brier_predictions(current_spots, now_ts)
 
-                # 3. Dynamic Take-Profit (+300 bps) & Stop-Loss (-200 bps) paper settlement
-                for trade_id, trade in list(self.ledger.open_positions.items()):
+                # 3. Dynamic Take-Profit & Stop-Loss paper settlement (disabled by default pending GATE.md validation)
+                if getattr(self.config.enhancements, "dynamic_tpsl_enabled", False):
+                    for trade_id, trade in list(self.ledger.open_positions.items()):
+
                     book = self.live_pm.books.get(trade.token_id)
                     duration = now_ts - trade.entry_time
                     should_settle = False

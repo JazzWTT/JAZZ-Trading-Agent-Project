@@ -18,11 +18,12 @@ import requests
 import websockets
 
 from core.dns_resolver import patch_dns
+from config import DEFAULT_CONFIG, SystemConfig
 
 logger = logging.getLogger("LiveFeeds")
 
 
-# Fallback verified high-liquidity Polymarket crypto target contracts
+# Fallback verified Polymarket crypto target contracts (stored with absolute UTC expiry timestamp)
 DEFAULT_TARGET_MARKETS: Dict[str, dict] = {
     "BTC": {
         "asset": "BTC",
@@ -31,7 +32,7 @@ DEFAULT_TARGET_MARKETS: Dict[str, dict] = {
         "strike_price": 95000.0,
         "token_id_yes": "37011650970792437921328530439273985710481032638212715110420998355785945483754",
         "token_id_no": "27201221676173593121678787264361008606480627771007041356248031697735484721466",
-        "evaluation_secs_remaining": 300
+        "expiry_ts": 1798761599.0  # 2026-12-31 23:59:59 UTC
     },
     "ETH": {
         "asset": "ETH",
@@ -40,7 +41,7 @@ DEFAULT_TARGET_MARKETS: Dict[str, dict] = {
         "strike_price": 2750.0,
         "token_id_yes": "109204197687767722729294908496033551963201953931111544169334789476829097062278",
         "token_id_no": "84768145019786095547717415732823502270141145470320952547313245070010555237775",
-        "evaluation_secs_remaining": 300
+        "expiry_ts": 1798761599.0  # 2026-12-31 23:59:59 UTC
     },
     "SOL": {
         "asset": "SOL",
@@ -49,9 +50,10 @@ DEFAULT_TARGET_MARKETS: Dict[str, dict] = {
         "strike_price": 140.0,
         "token_id_yes": "69173727652368747128236955922218906950929081188168783728953530362724870253611",
         "token_id_no": "46061353941500337945456217526255127998661855935112699202109962702794747234160",
-        "evaluation_secs_remaining": 300
+        "expiry_ts": 1798761599.0  # 2026-12-31 23:59:59 UTC
     }
 }
+
 
 
 def extract_strike_from_question(q: str) -> float:
@@ -243,10 +245,12 @@ class LivePolymarketFeedManager:
     """
     def __init__(
         self,
-        on_book_update: Optional[Callable] = None
+        on_book_update: Optional[Callable] = None,
+        config: Optional[SystemConfig] = None
     ):
         self.on_book_update = on_book_update
-        self.target_markets: Dict[str, dict] = dict(DEFAULT_TARGET_MARKETS)
+        self.config = config or DEFAULT_CONFIG
+        self.target_markets: Dict[str, dict] = {}
         self.token_to_asset: Dict[str, Tuple[str, str]] = {}  # token_id -> (asset, outcome)
         
         # Local Order Books: token_id -> {'bids': [...], 'asks': [...], 'best_bid': float, 'best_ask': float, 'spread_bps': float, 'top3_depth': float, 'ts': float}
@@ -262,8 +266,10 @@ class LivePolymarketFeedManager:
         self.clob_ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
     def discover_markets(self):
-        """Fetches active crypto markets via Polymarket Gamma API."""
+        """Fetches active crypto markets via Polymarket Gamma API, filtering strictly to short-duration danger zone."""
         patch_dns()
+        now = time.time()
+        discovered = {}
         try:
             url = "https://gamma-api.polymarket.com/events?limit=50&active=true&closed=false&tag_slug=crypto"
             headers = {"User-Agent": "Mozilla/5.0"}
@@ -280,31 +286,62 @@ class LivePolymarketFeedManager:
                         if len(tokens) < 2:
                             continue
 
+                        # F-1: Read market's actual end timestamp from Gamma API response
+                        end_date_str = m.get("endDate") or m.get("endDateIso") or m.get("end_date_iso")
+                        if not end_date_str:
+                            continue
+                        try:
+                            dt = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                            expiry_ts = dt.timestamp()
+                        except Exception:
+                            continue
+
+                        # Compute time-to-expiry dynamically
+                        time_to_expiry = expiry_ts - now
+
+                        # F-3: Filter discovery to short-duration markets only
+                        # Reject any market outside the configured danger zone
+                        min_secs = self.config.market.danger_zone_min_secs if hasattr(self, "config") and self.config else 120
+                        max_secs = self.config.market.danger_zone_max_secs if hasattr(self, "config") and self.config else 600
+                        if not (min_secs <= time_to_expiry <= max_secs):
+                            continue
+
+                        # F-5: Fail-loud guard: assertion that raises if discovered market's time-to-expiry exceeds 1 hour
+                        assert time_to_expiry <= 3600.0, f"Discovered market {m.get('id')} time-to-expiry ({time_to_expiry}s) exceeds 1-hour safety ceiling!"
+
                         vol = float(m.get("volume24hr") or 0)
                         for asset in ["BTC", "ETH", "SOL"]:
                             name = "Bitcoin" if asset == "BTC" else ("Ethereum" if asset == "ETH" else "Solana")
-                            if name in q and ("reach" in q.lower() or "dip" in q.lower()) and vol > 1000:
+                            if name in q:
                                 strike = extract_strike_from_question(q)
+                                # F-4: Never infer strike; must be explicit positive strike
                                 if strike > 0:
-                                    self.target_markets[asset] = {
+                                    discovered[asset] = {
                                         "asset": asset,
                                         "market_id": m.get("id"),
                                         "question": q,
                                         "strike_price": strike,
                                         "token_id_yes": tokens[0],
                                         "token_id_no": tokens[1],
-                                        "evaluation_secs_remaining": 300
+                                        "expiry_ts": expiry_ts
                                     }
-                                    logger.info(f"Discovered active Polymarket target for {asset}: {q}")
+                                    logger.info(f"Discovered qualifying short-duration target for {asset} (expires in {time_to_expiry:.1f}s): {q}")
                                     break
+        except AssertionError:
+            raise
         except Exception as e:
-            logger.warning(f"Could not discover dynamic markets via Gamma API ({e}). Using verified fallback contracts.")
+            logger.warning(f"Could not discover dynamic markets via Gamma API ({e}).")
+
+        self.target_markets = discovered
+        if not self.target_markets:
+            logger.info("No qualifying short-duration crypto markets (120s-600s) found on Polymarket. Target market list is empty.")
 
         # Re-build token_to_asset mapping
         self.token_to_asset.clear()
         for asset, mkt in self.target_markets.items():
             self.token_to_asset[mkt["token_id_yes"]] = (asset, "YES")
             self.token_to_asset[mkt["token_id_no"]] = (asset, "NO")
+
 
     async def start(self):
         """Starts market discovery and connects to Polymarket CLOB WebSocket."""
@@ -442,8 +479,14 @@ class LivePolymarketFeedManager:
 
             asset, outcome = self.token_to_asset[token_id]
             mkt = self.target_markets.get(asset, {})
-            secs_remaining = mkt.get("evaluation_secs_remaining", 300)
+            expiry_ts = mkt.get("expiry_ts")
+            if not expiry_ts:
+                return
+            secs_remaining = expiry_ts - now
+            if secs_remaining <= 0:
+                return
             market_id = mkt.get("market_id", "")
+
 
             if self.on_book_update and outcome == "YES":
                 self.on_book_update(
@@ -456,6 +499,7 @@ class LivePolymarketFeedManager:
                     now,
                     round(ofi, 4)
                 )
+
 
         # 2. Incremental Price Change Update
         elif event_type == "price_change":
@@ -506,7 +550,12 @@ class LivePolymarketFeedManager:
 
                 asset, outcome = self.token_to_asset[token_id]
                 mkt = self.target_markets.get(asset, {})
-                secs_remaining = mkt.get("evaluation_secs_remaining", 300)
+                expiry_ts = mkt.get("expiry_ts")
+                if not expiry_ts:
+                    continue
+                secs_remaining = expiry_ts - now
+                if secs_remaining <= 0:
+                    continue
                 market_id = mkt.get("market_id", "")
 
                 if self.on_book_update and outcome == "YES":
@@ -520,3 +569,4 @@ class LivePolymarketFeedManager:
                         now,
                         round(ofi, 4)
                     )
+

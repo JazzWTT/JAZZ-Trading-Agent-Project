@@ -66,8 +66,9 @@ class TestLiveFeedsAndDNS(unittest.TestCase):
                 "strike_price": 90000.0,
                 "token_id_yes": "TOKEN_BTC_YES",
                 "token_id_no": "TOKEN_BTC_NO",
-                "evaluation_secs_remaining": 300
+                "expiry_ts": 1789078500.0
             }
+
         }
         pm_mgr.token_to_asset = {
             "TOKEN_BTC_YES": ("BTC", "YES"),

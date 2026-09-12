@@ -25,7 +25,8 @@ class EventPacket:
     spread_bps: float
     
     # Metadata for execution & filtering
-    secs_remaining: int = 300
+    secs_remaining: float = 0.0
+    expiry_ts: float = 0.0
     top3_depth_usdc: float = 1200.0
     token_id: str = ""
     market_id: str = ""

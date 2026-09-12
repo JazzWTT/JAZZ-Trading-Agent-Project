@@ -123,10 +123,18 @@ class Agent2Brain(BaseAgent):
                 )
                 return None
 
-        # INSTRUCTION 3: Market's remaining time outside the danger zone (between 2 min and 10 min left)
-        if not (self.config.market.danger_zone_min_secs <= packet.secs_remaining <= self.config.market.danger_zone_max_secs):
+        # F-5: Fail-loud guard: reject and log ERROR when secs_remaining exceeds danger_zone_max_secs
+        if packet.secs_remaining > self.config.market.danger_zone_max_secs:
+            self.logger.error(
+                f"[{packet.asset_id}] [REJECTED] Contract time-to-expiry ({packet.secs_remaining:.1f}s) "
+                f"exceeds danger_zone_max_secs ({self.config.market.danger_zone_max_secs}s). Refusing long-dated contract."
+            )
+            return None
+
+        # Expiry minimum danger zone check (below 120s)
+        if packet.secs_remaining < self.config.market.danger_zone_min_secs:
             self.logger.debug(
-                f"[{packet.asset_id}] Expiry danger zone violation: secs_remaining={packet.secs_remaining} (must be between 120s and 600s)"
+                f"[{packet.asset_id}] Expiry danger zone minimum violation: secs_remaining={packet.secs_remaining:.1f}s < {self.config.market.danger_zone_min_secs}s"
             )
             return None
 
@@ -137,13 +145,14 @@ class Agent2Brain(BaseAgent):
             )
             return None
 
-        # Determine strike price: use explicit strike if present, else infer pre-momentum anchor
+        # F-4: Require explicit positive strike. Never infer, derive, or default a strike.
         strike = getattr(packet, "strike_price", 0.0)
         if strike <= 0.0:
-            if vel != -100.0:
-                strike = packet.spot_price / (1.0 + vel / 100.0)
-            else:
-                strike = packet.spot_price
+            self.logger.warning(
+                f"[{packet.asset_id}] Strike price missing or invalid ({strike}). Refusing to infer strike. Trade skipped."
+            )
+            return None
+
 
         vol = getattr(packet, "realized_vol_60s", None) or 0.60
 

@@ -145,7 +145,8 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spread_bps=198.0,              # <= 400 bps limit
             secs_remaining=300,            # 120s <= 300s <= 600s
             top3_depth_usdc=1500.0,        # > $500 USDC
-            token_id="BTC-5M-YES"
+            token_id="BTC-5M-YES",
+            strike_price=64700.0
         )
         order = self.brain.evaluate_packet(valid_packet)
         self.assertIsNotNone(order, "Valid upward packet should generate decision order")
@@ -164,7 +165,8 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spread_bps=198.0,
             secs_remaining=300,
             top3_depth_usdc=1500.0,
-            token_id="BTC-5M-YES"
+            token_id="BTC-5M-YES",
+            strike_price=65300.0
         )
         down_order = self.brain.evaluate_packet(downward_packet)
         self.assertIsNotNone(down_order, "Downward momentum burst should generate decision order")
@@ -183,7 +185,8 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spread_bps=2000.0,             # > 400 bps!
             secs_remaining=300,
             top3_depth_usdc=1500.0,
-            token_id="BTC-5M-YES"
+            token_id="BTC-5M-YES",
+            strike_price=64700.0
         )
         self.assertIsNone(self.brain.evaluate_packet(wide_spread_packet), "Should suppress if spread > 400 bps")
 
@@ -198,7 +201,8 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spread_bps=198.0,
             secs_remaining=90,             # 90s < 120s (2 min)
             top3_depth_usdc=1500.0,
-            token_id="BTC-5M-YES"
+            token_id="BTC-5M-YES",
+            strike_price=64700.0
         )
         self.assertIsNone(self.brain.evaluate_packet(danger_zone_packet), "Should reject if < 2 mins to expiry")
 
@@ -213,9 +217,11 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             spread_bps=198.0,
             secs_remaining=300,
             top3_depth_usdc=350.0,         # $350 < $500
-            token_id="BTC-5M-YES"
+            token_id="BTC-5M-YES",
+            strike_price=64700.0
         )
         self.assertIsNone(self.brain.evaluate_packet(low_liq_packet), "Should reject if depth < $500 USDC")
+
 
     # ==========================================
     # AGENT 3 (THE HANDS) TESTS
@@ -427,8 +433,10 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             secs_remaining=300,
             token_id="BTC-5M-YES",
             market_id="MKT-BTC-5M",
+            strike_price=64000.0,
             ts=now
         )
+
         self.assertIsNotNone(packet)
 
         # Publish packet to message bus

@@ -64,7 +64,7 @@ class TestStrategyEnhancements(unittest.TestCase):
                 "strike_price": 100000.0,
                 "token_id_yes": "T_YES",
                 "token_id_no": "T_NO",
-                "evaluation_secs_remaining": 300
+                "expiry_ts": time.time() + 300.0
             }
         }
         pm.token_to_asset = {"T_YES": ("BTC", "YES")}
@@ -93,6 +93,9 @@ class TestStrategyEnhancements(unittest.TestCase):
 
     def test_brain_ofi_filter_suppresses_adverse_trades(self):
         """Agent2Brain suppresses signals when OFI opposes the trade direction."""
+        # Explicitly enable OFI filter for this enhancement unit test
+        self.brain.config.enhancements.ofi_filter_enabled = True
+
         packet_adverse_yes = EventPacket(
             timestamp=time.time(),
             asset_id="BTC",
@@ -135,6 +138,9 @@ class TestStrategyEnhancements(unittest.TestCase):
 
     def test_brain_cross_venue_gate_suppresses_divergence(self):
         """Agent2Brain suppresses signals when cross_venue_confirmed is False."""
+        # Explicitly enable cross-venue consensus for this enhancement unit test
+        self.brain.config.enhancements.cross_venue_consensus_enabled = True
+
         packet = EventPacket(
             timestamp=time.time(),
             asset_id="ETH",
@@ -152,6 +158,7 @@ class TestStrategyEnhancements(unittest.TestCase):
         )
         order = self.brain.evaluate_packet(packet)
         self.assertIsNone(order)
+
 
 
 if __name__ == "__main__":

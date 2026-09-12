@@ -215,9 +215,10 @@ class TestBrierPassiveTournament(unittest.IsolatedAsyncioTestCase):
         await shield.evaluate_signal_risk(order)
         self.assertEqual(len(approved_commands), 0, "Shield permitted order dispatch in passive tournament mode!")
 
-        # 2. Hands direct execution must be suppressed
-        record = await hands.execute_order(order)
-        self.assertIsNone(record, "Hands executed order in passive tournament mode!")
+        # 2. Hands direct execution must raise RuntimeError (permanently disabled)
+        with self.assertRaises(RuntimeError) as ctx:
+            await hands.execute_order(order)
+        self.assertEqual(str(ctx.exception), "Strategy shelved. Execution permanently disabled.")
 
         # 3. Verify zero execution records in DB
         with self.db._get_conn() as conn:

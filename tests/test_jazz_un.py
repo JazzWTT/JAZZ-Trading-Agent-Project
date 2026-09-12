@@ -227,10 +227,10 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
     # AGENT 3 (THE HANDS) TESTS
     # ==========================================
     async def test_agent3_limit_order_enforcement_and_signing(self):
-        """Directive 2, 3, 5: Limit Orders only, BUY only, EIP-712 signature, execution logging."""
+        """Directive 2, 3, 5 & Decommissioning: execute_order must raise RuntimeError (permanently disabled)."""
         await self.hands.start()
 
-        # Valid BUY limit order
+        # Valid BUY limit order must raise RuntimeError
         valid_order = DecisionOrder(
             signal_id="SIG-001",
             action="BUY",
@@ -239,32 +239,9 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
             calculated_edge_bps=450.0,
             max_size_shares=200.0
         )
-        record = await self.hands.execute_order(valid_order)
-        self.assertIsNotNone(record)
-        self.assertEqual(record.order_type, "LIMIT")
-        self.assertEqual(record.side, "BUY")
-        self.assertTrue(record.network_hash.startswith("0x"))
-        self.assertEqual(record.status, "POSTED")
-
-        # Verify DB audit trail
-        with self.db._get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM executions WHERE client_order_id = ?", (record.client_order_id,))
-            row = cur.fetchone()
-            self.assertIsNotNone(row)
-            self.assertEqual(row["side"], "BUY")
-
-        # Invalid SELL order (attempting to sell NO)
-        invalid_sell_order = DecisionOrder(
-            signal_id="SIG-002",
-            action="SELL",
-            token_id="BTC-5M-NO",
-            target_limit_price=0.48,
-            calculated_edge_bps=400.0,
-            max_size_shares=100.0
-        )
-        rejected_record = await self.hands.execute_order(invalid_sell_order)
-        self.assertIsNone(rejected_record, "Should reject non-BUY orders")
+        with self.assertRaises(RuntimeError) as ctx:
+            await self.hands.execute_order(valid_order)
+        self.assertEqual(str(ctx.exception), "Strategy shelved. Execution permanently disabled.")
 
     # ==========================================
     # AGENT 4 (THE SHIELD) TESTS
@@ -409,61 +386,6 @@ class TestJazzTradingUN(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(is_reconciled)
         self.assertAlmostEqual(delta, 0.005, places=3)
 
-    # ==========================================
-    # INTEGRATION: END-TO-END PIPELINE TEST
-    # ==========================================
-    async def test_end_to_end_pipeline(self):
-        """Integration: Eyes -> Brain -> Shield -> Hands -> Ledger full async pipeline."""
-        await self.eyes.start()
-        await self.brain.start()
-        await self.shield.start()
-        await self.hands.start()
-        await self.ledger.start()
-
-        now = time.time()
-        # Seed 60s spot price history
-        self.eyes.update_spot_price("BTC", 64000.0, ts=now - 60.0)
-        self.eyes.update_spot_price("BTC", 64300.0, ts=now)  # +0.47% velocity
-
-        # Polymarket book update (spread ~198 bps < 400 bps ceiling, depth $510 > $500)
-        packet = self.eyes.update_polymarket_clob(
-            asset="BTC",
-            bids=[(0.50, 1000)],
-            asks=[(0.51, 1000)],
-            secs_remaining=300,
-            token_id="BTC-5M-YES",
-            market_id="MKT-BTC-5M",
-            strike_price=64000.0,
-            ts=now
-        )
-
-        self.assertIsNotNone(packet)
-
-        # Publish packet to message bus
-        await self.eyes.emit_packet(packet)
-
-        # Allow event loop propagation through all 5 agents
-        await asyncio.sleep(0.4)
-
-        # 1. Verify Hands posted execution record to DB
-        with self.db._get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM executions WHERE token_id = ?", ("BTC-5M-YES",))
-            row = cur.fetchone()
-            self.assertIsNotNone(row, "Hands must post execution record to database")
-            self.assertEqual(row["side"], "BUY")
-            self.assertEqual(row["status"], "POSTED")
-
-        # 2. Verify Ledger tracked position
-        self.assertEqual(len(self.ledger.open_positions), 1, "Ledger must track opened position")
-        trade_id = list(self.ledger.open_positions.keys())[0]
-        trade = self.ledger.open_positions[trade_id]
-        self.assertEqual(trade.token_id, "BTC-5M-YES")
-
-        # 3. Verify settlement lifecycle
-        pnl = self.ledger.settle_trade(trade_id, exit_price=0.55)
-        self.assertGreater(pnl, 0.0)
-        self.assertEqual(len(self.ledger.open_positions), 0)
 
 
 if __name__ == "__main__":

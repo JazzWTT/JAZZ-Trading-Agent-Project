@@ -226,6 +226,13 @@ def evaluate_brier_skill(model_probs: List[float], market_mids: List[float], out
     b_mkt = compute_brier_score(market_mids, outcomes)
     delta = b_mkt - b_model
 
+    # 2.5: Near-zero Brier on binary outcomes always indicates a bug (tautological validation)
+    if n > 0 and b_model < 0.01:
+        raise ValueError(
+            f"Invalid validation result: brier_model={b_model:.6f} < 0.01. "
+            "A near-zero Brier score on binary outcomes always indicates a bug (evaluating identical state)."
+        )
+
     return {
         "n": n,
         "brier_model": round(b_model, 4),

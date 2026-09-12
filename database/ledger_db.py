@@ -684,6 +684,14 @@ class LedgerDB:
             """, (limit,))
             recent = [dict(r) for r in cur.fetchall()]
 
+        # 2.5: Near-zero Brier on binary outcomes always indicates a bug (tautological validation)
+        if count > 0 and avg_model < 0.01:
+            raise ValueError(
+                f"Invalid validation result: brier_model={avg_model:.6f} < 0.01. "
+                "A near-zero Brier score on binary outcomes always indicates a bug (F5: predicting identical state), "
+                "and must raise rather than display."
+            )
+
         skill_delta = (avg_mkt - avg_model) if count > 0 else 0.0
         return {
             "total_evaluated": count,

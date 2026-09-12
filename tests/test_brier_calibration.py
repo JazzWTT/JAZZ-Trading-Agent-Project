@@ -155,6 +155,35 @@ class TestBrierDatabaseLedger(unittest.TestCase):
         self.assertGreater(metrics["skill_delta"], 0.0)
         self.assertTrue(metrics["has_statistical_edge"])
 
+    def test_near_zero_brier_score_raises_bug_error(self):
+        """
+        Regression test for Section 2.5 & Finding F5:
+        Assert that no Brier score below 0.01 can ever be rendered as a validation result.
+        A near-zero Brier on binary outcomes always indicates a bug (evaluating identical state),
+        and must raise rather than display.
+        """
+        # 1. evaluate_brier_skill must raise on brier_model < 0.01
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_brier_skill(model_probs=[0.99], market_mids=[0.50], outcomes=[1])
+        self.assertIn("Invalid validation result", str(ctx.exception))
+
+        # 2. LedgerDB.get_brier_metrics must raise on avg_brier_model < 0.01
+        now = time.time()
+        self.db.record_brier_prediction(
+            asset_id="BTC",
+            market_id="mkt_tautology_bug",
+            token_id="tok_tautology",
+            strike_price=80000.0,
+            expiry_ts=now - 5.0,
+            model_fair_prob=0.99,  # (0.99 - 1.0)^2 = 0.0001 < 0.01
+            market_mid_price=0.50
+        )
+        self.db.resolve_expired_brier_predictions({"BTC": 85000.0}, now_ts=now)
+
+        with self.assertRaises(ValueError) as ctx2:
+            self.db.get_brier_metrics()
+        self.assertIn("Invalid validation result", str(ctx2.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

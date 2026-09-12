@@ -245,44 +245,7 @@ def get_active_bot_state() -> dict:
     return db.get_bot_control()
 
 
-def start_bot_service():
-    """Starts the background bot runner."""
-    db.update_bot_control(status="RUNNING", kill_switch=0)
-    # Check if a process is already tracked
-    pid = st.session_state.bot_process_pid
-    is_alive = False
-    if pid:
-        try:
-            # Check on Windows
-            os.kill(pid, 0)
-            is_alive = True
-        except (OSError, ProcessLookupError):
-            is_alive = False
-
-    if not is_alive:
-        # Launch bot_service.py in background
-        proc = subprocess.Popen(
-            [sys.executable, os.path.join(BASE_DIR, "bot_service.py")],
-            cwd=BASE_DIR,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        st.session_state.bot_process_pid = proc.pid
-    st.toast("⚡ Bot Service Started", icon="🟢")
-
-
-def stop_emergency_kill_switch():
-    """Engages emergency kill switch and stops all trading."""
-    db.update_bot_control(status="STOPPED", kill_switch=1)
-    db.record_log("CRITICAL", "app_dashboard", "[KILL-SWITCH ENGAGED] Emergency stop triggered from web UI!")
-    pid = st.session_state.bot_process_pid
-    if pid:
-        try:
-            os.kill(pid, 9)
-        except Exception:
-            pass
-        st.session_state.bot_process_pid = None
-    st.toast("🛑 EMERGENCY KILL-SWITCH ACTIVATED", icon="🚨")
+# Strategy is permanently shelved on evidence. Process launching and risk synchronization removed.
 
 
 # =============================================================================
@@ -305,80 +268,19 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # Engine Status Pill
-    if kill_switch_active:
-        st.markdown('<div class="badge badge-red" style="width:100%; text-align:center; padding: 6px 0; margin-bottom: 1rem;">🚨 KILL-SWITCH ACTIVE</div>', unsafe_allow_html=True)
-    elif engine_status == "RUNNING":
-        st.markdown('<div class="badge badge-green" style="width:100%; text-align:center; padding: 6px 0; margin-bottom: 1rem;">🟢 ENGINE: RUNNING</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="badge badge-amber" style="width:100%; text-align:center; padding: 6px 0; margin-bottom: 1rem;">⚪ ENGINE: HALTED // IDLE</div>', unsafe_allow_html=True)
+    # Strategy Shelved Status Pill
+    st.markdown('<div class="badge badge-red" style="width:100%; text-align:center; padding: 8px 0; margin-bottom: 1rem; font-weight: 700; letter-spacing: 0.05em;">STATUS: SHELVED — SEE POSTMORTEM.MD</div>', unsafe_allow_html=True)
 
-    # Control Buttons
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("▶ Start Bot", use_container_width=True, type="primary"):
-            start_bot_service()
-            st.rerun()
-
-    with col_btn2:
-        if st.button("🛑 Kill-Switch", use_container_width=True):
-            stop_emergency_kill_switch()
-            st.rerun()
+    st.markdown("""
+    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.78rem; color: #a1a1aa; line-height: 1.4; margin-bottom: 1rem;">
+        <strong style="color: #ef4444;">STRATEGY RETIRED ON EVIDENCE</strong><br>
+        Execution permanently disabled. Risk controls locked. See <a href="file:///C:/Users/USER/.gemini/antigravity/scratch/jazz_trading_un/POSTMORTEM.md" style="color: #38bdf8; text-decoration: underline;">POSTMORTEM.md</a>.
+    </div>
+    """, unsafe_allow_html=True)
 
     if st.button("🧹 Reset Ledger ($10k USDC)", use_container_width=True):
         db.reset_database(initial_capital=DEFAULT_CONFIG.risk.total_capital_usdc)
         st.toast("Portfolio ledger reset back to clean $10,000 USDC!", icon="🧹")
-        st.rerun()
-
-    st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
-
-    # Risk Management Controls
-    st.markdown("<div style='font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #a1a1aa; letter-spacing: 0.05em; margin-bottom: 0.6rem;'>Risk Guardrails</div>", unsafe_allow_html=True)
-
-    max_pos = st.slider(
-        "Max Position Size (% Capital)",
-        min_value=0.5,
-        max_value=5.0,
-        value=float(bot_ctrl.get("max_position_pct", 2.0)),
-        step=0.1,
-        help="Hard notional ceiling per market. Default is 2% ($200 on $10k)."
-    )
-
-    daily_loss = st.slider(
-        "Daily Loss Breaker (%)",
-        min_value=1.0,
-        max_value=10.0,
-        value=float(bot_ctrl.get("daily_loss_limit_pct", 5.0)),
-        step=0.5,
-        help="Circuit breaker trips and halts trading if 24h loss hits threshold."
-    )
-
-    min_delta = st.slider(
-        "Min Profit Delta Edge (%)",
-        min_value=1.0,
-        max_value=10.0,
-        value=float(bot_ctrl.get("min_profit_threshold_pct", 3.5)),
-        step=0.5,
-        help="Discrepancy between Black-Scholes fair probability and Polymarket ask."
-    )
-
-    max_spread = st.slider(
-        "Max Spread Ceiling (bps)",
-        min_value=100,
-        max_value=800,
-        value=int(bot_ctrl.get("max_spread_bps", 400)),
-        step=50,
-        help="Signals suppressed if spread > ceiling. 400 bps = ~2c spread on 50c token."
-    )
-
-    if st.button("Save & Sync Config", use_container_width=True):
-        db.update_bot_control(
-            max_position_pct=max_pos,
-            daily_loss_limit_pct=daily_loss,
-            min_profit_threshold_pct=min_delta,
-            max_spread_bps=max_spread
-        )
-        st.toast("Risk settings updated in database!", icon="✅")
         st.rerun()
 
     st.markdown("<hr style='border-color: #1e1e24; margin: 1.2rem 0;'>", unsafe_allow_html=True)
@@ -629,108 +531,7 @@ def render_tab1():
         st.markdown(f"""
         <div style="background: #0f0f13; border: 1px solid #1e1e24; border-radius: 8px; padding: 0.85rem 1rem;">
             <div style="font-size: 0.72rem; color: #71717a; text-transform: uppercase;">Pipeline Health</div>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #22c55e; font-family: 'JetBrains Mono', monospace;">HEALTHY & VERIFIED</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Row 4: Model vs. Market Brier Score Calibration Tournament
-    st.markdown("<div style='height: 22px;'></div>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.6rem;">
-        <div>
-            <div style="font-size: 0.95rem; font-weight: 600; color: #fafafa;">Brier Score Calibration Tournament (Model vs. Market Mid-Quote)</div>
-            <div style="font-size: 0.75rem; color: #71717a;">Quant Reality Check: Mean squared error on binary expiry outcomes. Lower is better. Model Outperformance (&Delta; &gt; 0) proves statistical edge.</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    brier_data = db.get_brier_metrics(limit=10)
-    total_eval = brier_data.get("total_evaluated", 0)
-    b_model = brier_data.get("brier_model", 0.0)
-    b_mkt = brier_data.get("brier_market", 0.0)
-    skill_delta = brier_data.get("skill_delta", 0.0)
-    has_edge = brier_data.get("has_statistical_edge", False)
-
-    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
-    with b_col1:
-        st.html(f"""
-        <div class="metric-card">
-            <div class="metric-label">Model Brier Score</div>
-            <div class="metric-value">{b_model:.4f}</div>
-            <div class="metric-delta delta-up">Target: &lt; 0.2500 (Ref: 0.0 = Perfect)</div>
-        </div>
-        """)
-    with b_col2:
-        st.html(f"""
-        <div class="metric-card">
-            <div class="metric-label">Market Mid Brier Score</div>
-            <div class="metric-value">{b_mkt:.4f}</div>
-            <div class="metric-delta delta-warn">Polymarket Consensus Benchmark</div>
-        </div>
-        """)
-    with b_col3:
-        if skill_delta > 0:
-            delta_class = "delta-up"
-            delta_icon = "▲"
-            delta_desc = "Model Outperforms Market"
-        elif skill_delta < 0:
-            delta_class = "delta-down"
-            delta_icon = "▼"
-            delta_desc = "Market Outperforms Model"
-        else:
-            delta_class = "delta-warn"
-            delta_icon = "■"
-            delta_desc = "Parity / Awaiting Expiries"
-
-        st.html(f"""
-        <div class="metric-card">
-            <div class="metric-label">Skill Delta (&Delta; = Mkt - Model)</div>
-            <div class="metric-value">{skill_delta:+.4f}</div>
-            <div class="metric-delta {delta_class}">{delta_icon} {delta_desc}</div>
-        </div>
-        """)
-    with b_col4:
-        if total_eval < 10:
-            badge_html = f'<span class="badge badge-amber">CALIBRATING ({total_eval}/10 Resolved)</span>'
-            status_desc = "Sampling Live Market Expiries"
-        elif has_edge:
-            badge_html = f'<span class="badge badge-green">STATISTICAL EDGE VERIFIED</span>'
-            status_desc = f"{total_eval} Contracts Evaluated"
-        else:
-            badge_html = f'<span class="badge badge-red">MARKET DOMINANT (ZERO EDGE)</span>'
-            status_desc = f"{total_eval} Contracts Evaluated"
-
-        st.html(f"""
-        <div class="metric-card">
-            <div class="metric-label">Statistical Validation Verdict</div>
-            <div style="margin-top: 0.4rem; margin-bottom: 0.35rem;">{badge_html}</div>
-            <div class="metric-delta delta-warn" style="color: #a1a1aa; background: rgba(161,161,170,0.12);">{status_desc}</div>
-        </div>
-        """)
-
-    recent_brier = brier_data.get("recent_evaluations", [])
-    if recent_brier:
-        brier_df = pd.DataFrame(recent_brier)
-        brier_df["Expiry Time"] = pd.to_datetime(brier_df["expiry_ts"], unit="s").dt.strftime("%Y-%m-%d %H:%M:%S")
-        brier_df["Asset"] = brier_df["asset_id"]
-        brier_df["Strike"] = brier_df["strike_price"].apply(lambda x: f"${x:,.2f}")
-        brier_df["Model Prob"] = brier_df["model_fair_prob"].apply(lambda x: f"{x:.4f}")
-        brier_df["Market Mid"] = brier_df["market_mid_price"].apply(lambda x: f"{x:.4f}")
-        brier_df["Outcome (Y)"] = brier_df["actual_outcome"].apply(lambda x: "UP (1)" if x == 1 else "DOWN (0)")
-        brier_df["Model Error Sq"] = brier_df["brier_model"].apply(lambda x: f"{x:.4f}")
-        brier_df["Market Error Sq"] = brier_df["brier_market"].apply(lambda x: f"{x:.4f}")
-        brier_df["Winner"] = brier_df.apply(lambda r: "Model" if r["brier_model"] < r["brier_market"] else ("Market" if r["brier_market"] < r["brier_model"] else "Tie"), axis=1)
-
-        display_cols = ["Expiry Time", "Asset", "Strike", "Model Prob", "Market Mid", "Outcome (Y)", "Model Error Sq", "Market Error Sq", "Winner"]
-        st.dataframe(
-            brier_df[display_cols],
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.markdown("""
-        <div style="background: #0f0f13; border: 1px dashed #27272a; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.78rem; color: #71717a; text-align: center; margin-top: 0.5rem;">
-            Live crypto contracts are actively logged for Brier calibration. Resolved outcome scores will populate automatically upon contract expiry.
+            <div style="font-size: 1.25rem; font-weight: 700; color: #ef4444; font-family: 'JetBrains Mono', monospace;">SHELVED — SEE POSTMORTEM.md</div>
         </div>
         """, unsafe_allow_html=True)
 

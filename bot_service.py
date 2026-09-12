@@ -229,7 +229,11 @@ class BotService:
         self.logger.info("JAZZ Bot Service has STOPPED.")
 
     async def run_loop(self):
-        """Main service loop handling IPC controls, live spot feed, CLOB order books, and snapshots."""
+        """Main service loop refused: strategy retired on evidence."""
+        self.logger.critical("SHELVED: strategy retired on 2026-09-13. See POSTMORTEM.md.")
+        return
+
+        # Unreachable code preserved below
         await self.start()
         tick_count = 0
 
